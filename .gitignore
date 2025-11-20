@@ -1,3 +1,20 @@
+# Local venvs
+.venv/
+venv/
+
+# Mac stuff
+.DS_Store
+
+# Our temp job dirs
+whisper_job_*/
+whisperx_job_*/
+
+# Tokens
+hf_token.txt
+
+
+# Default Python Tempalte:
+
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[codz]
