@@ -1,6 +1,7 @@
 """Subprocess helpers with logging."""
 
 import subprocess
+import sys
 from typing import List, Optional, Tuple
 
 from .logging_utils import debug, log_line
@@ -21,50 +22,41 @@ def run_logged_subprocess(
         cwd=cwd,
         stdout=subprocess.PIPE,
         stderr=subprocess.STDOUT,
-        text=True,
-        bufsize=1,
-        universal_newlines=True,
+        bufsize=0,
     )
+
     lines: List[str] = []
-    last_progress_line: Optional[str] = None
-    progress_displayed = False
+    buffer = ""
     assert process.stdout is not None
-    for raw_line in process.stdout:
-        raw_line = raw_line.rstrip("\n")
 
-        # yt-dlp prints download progress with carriage returns ("\r"), which
-        # causes the progress line to be rewritten in-place instead of
-        # flooding the terminal. Capture this behavior even though stdout is not
-        # a TTY by treating progress lines specially.
-        parts = raw_line.split("\r")
-        for part in parts:
-            if not part:
-                continue
+    # Stream raw output to the console to preserve ANSI colors and progress
+    # animations, while accumulating full lines for logging and error handling.
+    while True:
+        chunk = process.stdout.read1(1024)
+        if not chunk:
+            break
 
-            is_progress = part.startswith("[download]")
+        sys.stdout.buffer.write(chunk)
+        sys.stdout.buffer.flush()
 
-            if is_progress:
-                last_progress_line = part.rstrip()
-                print(f"\r{last_progress_line}", end="", flush=True)
-                progress_displayed = True
-                continue
+        try:
+            text_chunk = chunk.decode("utf-8", errors="replace")
+        except AttributeError:
+            # If chunk is already a string (unlikely), keep it as is.
+            text_chunk = chunk
 
-            if progress_displayed:
-                # Ensure regular output starts on a fresh line after an inline
-                # progress update.
-                print()
-                progress_displayed = False
+        buffer += text_chunk
+        while "\n" in buffer:
+            line, buffer = buffer.split("\n", 1)
+            clean_line = line.rstrip("\r")
+            if clean_line:
+                log_line(clean_line)
+            lines.append(clean_line)
 
-            line = part.rstrip()
-            if line:
-                log_line(line)
-            lines.append(line)
+    if buffer.strip():
+        clean_line = buffer.rstrip("\r")
+        log_line(clean_line)
+        lines.append(clean_line)
 
-    if progress_displayed:
-        print()
-
-    if last_progress_line:
-        log_line(last_progress_line)
-        lines.append(last_progress_line)
     process.wait()
     return process.returncode, lines
