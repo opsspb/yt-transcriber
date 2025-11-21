@@ -19,15 +19,26 @@ def _macos_ffmpeg_download() -> Tuple[str, str]:
         filename = "ffmpeg-master-latest-macos-arm64-static.zip"
     else:
         filename = "ffmpeg-master-latest-macos64-static.zip"
-    base = "https://github.com/yt-dlp/FFmpeg-Builds/releases/download/latest"
+    # The yt-dlp FFmpeg builds expose the latest assets under the
+    # `releases/latest/download/<asset>` path. The previous
+    # `releases/download/latest/<asset>` form now returns 404s, so use the
+    # supported location.
+    base = "https://github.com/yt-dlp/FFmpeg-Builds/releases/latest/download"
     return f"{base}/{filename}", filename
 
 
 def _download_and_extract_zip(url: str, archive_path: str, unpack_dir: str) -> None:
     import urllib.request
+    from urllib.error import HTTPError, URLError
 
     debug(f"Downloading ffmpeg binary from {url} ...")
-    urllib.request.urlretrieve(url, archive_path)
+    try:
+        urllib.request.urlretrieve(url, archive_path)
+    except (HTTPError, URLError) as exc:
+        raise DependencyError(
+            "Failed to download ffmpeg/ffprobe static build; "
+            "please check your network connection or provide ffmpeg manually."
+        ) from exc
 
     debug(f"Extracting ffmpeg archive to {unpack_dir} ...")
     with zipfile.ZipFile(archive_path, "r") as zf:
