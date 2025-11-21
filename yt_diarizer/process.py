@@ -32,7 +32,7 @@ def run_logged_subprocess(
     # Stream raw output to the console to preserve ANSI colors and progress
     # animations, while accumulating full lines for logging and error handling.
     while True:
-        chunk = process.stdout.read1(1024)
+        chunk = process.stdout.read(1024)
         if not chunk:
             break
 
