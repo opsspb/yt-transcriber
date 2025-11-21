@@ -5,40 +5,50 @@ import platform
 import shutil
 import sys
 import zipfile
-from typing import Dict, List, Tuple
+from typing import Dict, List, Optional, Tuple
 
 from .exceptions import DependencyError
 from .logging_utils import debug
 
 
-def _macos_ffmpeg_download() -> Tuple[str, str]:
-    """Return URL and archive name for macOS ffmpeg+ffprobe build."""
+def _macos_ffmpeg_download() -> Tuple[List[str], str]:
+    """Return candidate URLs and archive name for macOS ffmpeg+ffprobe build."""
     # Use yt-dlp maintained static builds that include both ffmpeg and ffprobe.
     arch = platform.machine().lower()
     if "arm" in arch or arch == "aarch64":
         filename = "ffmpeg-master-latest-macos-arm64-static.zip"
     else:
         filename = "ffmpeg-master-latest-macos64-static.zip"
-    # The yt-dlp FFmpeg builds expose the latest assets under the
-    # `releases/latest/download/<asset>` path. The previous
-    # `releases/download/latest/<asset>` form now returns 404s, so use the
-    # supported location.
-    base = "https://github.com/yt-dlp/FFmpeg-Builds/releases/latest/download"
-    return f"{base}/{filename}", filename
+
+    # yt-dlp FFmpeg builds expose the latest assets under
+    # `releases/latest/download/<asset>`, but some environments still resolve
+    # `releases/download/latest/<asset>` successfully. Try both to reduce
+    # spurious download failures.
+    bases = [
+        "https://github.com/yt-dlp/FFmpeg-Builds/releases/latest/download",
+        "https://github.com/yt-dlp/FFmpeg-Builds/releases/download/latest",
+    ]
+    return [f"{base}/{filename}" for base in bases], filename
 
 
-def _download_and_extract_zip(url: str, archive_path: str, unpack_dir: str) -> None:
+def _download_and_extract_zip(urls: List[str], archive_path: str, unpack_dir: str) -> None:
     import urllib.request
     from urllib.error import HTTPError, URLError
 
-    debug(f"Downloading ffmpeg binary from {url} ...")
-    try:
-        urllib.request.urlretrieve(url, archive_path)
-    except (HTTPError, URLError) as exc:
+    last_error: Optional[Exception] = None
+    for url in urls:
+        debug(f"Downloading ffmpeg binary from {url} ...")
+        try:
+            urllib.request.urlretrieve(url, archive_path)
+            break
+        except (HTTPError, URLError) as exc:
+            last_error = exc
+            debug(f"ffmpeg download failed from {url}: {exc}")
+    else:
         raise DependencyError(
-            "Failed to download ffmpeg/ffprobe static build; "
+            "Failed to download ffmpeg/ffprobe static build after trying multiple URLs; "
             "please check your network connection or provide ffmpeg manually."
-        ) from exc
+        ) from last_error
 
     debug(f"Extracting ffmpeg archive to {unpack_dir} ...")
     with zipfile.ZipFile(archive_path, "r") as zf:
@@ -122,11 +132,11 @@ def download_ffmpeg_if_missing(work_dir: str) -> str:
             "ffmpeg/ffprobe not found and auto-download is only implemented on macOS."
         )
 
-    ffmpeg_zip_url, filename = _macos_ffmpeg_download()
+    ffmpeg_zip_urls, filename = _macos_ffmpeg_download()
     archive_path = os.path.join(work_dir, filename)
     unpack_dir = os.path.join(work_dir, "ffmpeg_unpacked")
 
-    _download_and_extract_zip(ffmpeg_zip_url, archive_path, unpack_dir)
+    _download_and_extract_zip(ffmpeg_zip_urls, archive_path, unpack_dir)
 
     ffmpeg_path = _find_binary(unpack_dir, "ffmpeg")
     ffprobe_path = _find_binary(unpack_dir, "ffprobe")
