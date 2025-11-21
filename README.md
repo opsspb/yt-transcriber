@@ -6,7 +6,7 @@ A one-command CLI that downloads a YouTube video, transcribes it with WhisperX, 
 
 - Python 3.9.6 or newer available on the command line (confirmed to work on macOS 26.1).
 - macOS is the primary target (Apple Silicon recommended). ffmpeg is auto-downloaded on macOS when missing; on other platforms it must already be in `PATH`. You can also point the tool to existing binaries with `YT_DIARIZER_FFMPEG=/full/path/to/ffmpeg` and (optionally) `YT_DIARIZER_FFPROBE=/full/path/to/ffprobe`.
-- A Hugging Face access token saved to `token.txt` in the repository root (used for WhisperX/pyannote diarization).
+- A Hugging Face access token saved to `token.txt` in the repository root (used for WhisperX/pyannote diarization). Module execution (`python -m yt_diarizer`) also looks for this file in the repository root before falling back to `yt_diarizer/token.txt`.
 - Internet access to download YouTube audio and WhisperX models.
 
 ## Quick start
@@ -14,13 +14,15 @@ A one-command CLI that downloads a YouTube video, transcribes it with WhisperX, 
 1. Clone the repository and open a terminal in the project root.
 2. Create `token.txt` containing your Hugging Face token (no quotes or extra spaces).
 3. (Optional) If the video requires authentication, place a Netscape-format `cookies.txt` file next to the script or set `YT_DIARIZER_COOKIES=/full/path/to/cookies.txt`.
-4. Run the tool:
+4. Run the tool. You can provide the YouTube URL on the command line or wait for the interactive prompt:
    ```bash
-   python3 yt_diarizer.py
+   python3 yt_diarizer.py "https://www.youtube.com/watch?v=..."
+   # or
+   python -m yt_diarizer "https://www.youtube.com/watch?v=..."
    ```
 5. When prompted, paste the YouTube URL and press **Enter**. The script will:
    - create a temporary workspace and virtual environment under `.yt_diarizer_work_*`,
-   - install `whisperx` and `yt-dlp` inside the venv,
+   - install pinned versions of WhisperX, PyTorch CPU wheels, pyannote, and `yt-dlp` inside the venv,
    - download best-quality audio via `yt-dlp` (falling back to your cookies or browser cookies if needed),
    - transcribe with WhisperX using the `large-v3` model and pyannote diarization on CPU,
    - print progress and debug messages to the terminal.
