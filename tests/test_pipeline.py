@@ -19,14 +19,18 @@ class InstallPythonDependenciesTests(unittest.TestCase):
         with mock.patch("yt_diarizer.pipeline.run_logged_subprocess", side_effect=_fake_run):
             pipeline.install_python_dependencies("/venv/python")
 
-        self.assertEqual(len(calls), 3)
-        torch_cmd, torch_desc = calls[1]
+        self.assertEqual(len(calls), 4)
+        numpy_cmd, numpy_desc = calls[1]
+        self.assertIn("numpy==1.26.4", numpy_cmd)
+        self.assertIn("below 2.x", numpy_desc)
+
+        torch_cmd, torch_desc = calls[2]
         self.assertIn("install PyTorch CPU wheels", torch_desc)
         self.assertIn("torch==2.1.2", torch_cmd)
         self.assertIn("torchaudio==2.1.2", torch_cmd)
         self.assertIn("--index-url", torch_cmd)
 
-        whisper_cmd, whisper_desc = calls[2]
+        whisper_cmd, whisper_desc = calls[3]
         self.assertIn("install WhisperX", whisper_desc)
         self.assertIn("whisperx==3.1.1", whisper_cmd)
         self.assertIn("yt-dlp==2024.11.18", whisper_cmd)

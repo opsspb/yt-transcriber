@@ -129,6 +129,7 @@ def install_python_dependencies(venv_python: str) -> None:
     debug("Installing Python dependencies (pinned WhisperX stack) inside venv ...")
 
     pinned_versions = {
+        "numpy": "1.26.4",
         "torch": "2.1.2",
         "torchaudio": "2.1.2",
         "whisperx": "3.1.1",
@@ -146,6 +147,11 @@ def install_python_dependencies(venv_python: str) -> None:
     _run(
         [venv_python, "-m", "pip", "install", "--upgrade", "pip"],
         "pip upgrade",
+    )
+
+    _run(
+        [venv_python, "-m", "pip", "install", f"numpy=={pinned_versions['numpy']}"],
+        "install NumPy pinned below 2.x for PyTorch binary compatibility",
     )
 
     torch_index = "https://download.pytorch.org/whl/cpu"
@@ -168,6 +174,7 @@ def install_python_dependencies(venv_python: str) -> None:
         with tempfile.NamedTemporaryFile("w", delete=False) as tmp:
             constraint_path = tmp.name
             tmp.write(
+                f"numpy=={pinned_versions['numpy']}\n"
                 f"torch=={pinned_versions['torch']}\n"
                 f"torchaudio=={pinned_versions['torchaudio']}\n"
             )
