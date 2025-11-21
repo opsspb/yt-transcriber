@@ -5,7 +5,11 @@ from unittest import mock
 import sys
 
 from yt_diarizer import pipeline
-from yt_diarizer.exceptions import DependencyError, PipelineError
+from yt_diarizer.exceptions import (
+    DependencyError,
+    DependencyInstallationError,
+    PipelineError,
+)
 
 
 class InstallPythonDependenciesTests(unittest.TestCase):
@@ -16,7 +20,9 @@ class InstallPythonDependenciesTests(unittest.TestCase):
             calls.append((cmd, description))
             return 0, ["ok"]
 
-        with mock.patch("yt_diarizer.pipeline.run_logged_subprocess", side_effect=_fake_run):
+        with mock.patch("yt_diarizer.pipeline.run_logged_subprocess", side_effect=_fake_run), mock.patch(
+            "shutil.which", return_value="/usr/bin/pkg-config"
+        ):
             pipeline.install_python_dependencies("/venv/python")
 
         self.assertEqual(len(calls), 4)
@@ -41,13 +47,23 @@ class InstallPythonDependenciesTests(unittest.TestCase):
         with mock.patch(
             "yt_diarizer.pipeline.run_logged_subprocess",
             side_effect=[(0, ["ok"]), (1, ["line1", "line2", "line3"]), (0, [])],
-        ):
+        ), mock.patch("shutil.which", return_value="/usr/bin/pkg-config"):
             with self.assertRaises(DependencyError) as ctx:
                 pipeline.install_python_dependencies("/venv/python")
 
         message = str(ctx.exception)
         self.assertIn("line2", message)
         self.assertIn("exit code 1", message)
+
+    def test_install_python_dependencies_requires_pkg_config_on_unix(self) -> None:
+        with mock.patch("sys.platform", "darwin"), mock.patch(
+            "shutil.which", return_value=None
+        ), mock.patch("yt_diarizer.pipeline.run_logged_subprocess") as mocked_run:
+            with self.assertRaises(DependencyInstallationError) as ctx:
+                pipeline.install_python_dependencies("/venv/python")
+
+        self.assertIn("pkg-config not found", str(ctx.exception))
+        mocked_run.assert_not_called()
 
 
 class WorkspaceCleanupTests(unittest.TestCase):

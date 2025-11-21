@@ -8,6 +8,7 @@ A one-command CLI that downloads a YouTube video, transcribes it with WhisperX, 
 - macOS is the primary target (Apple Silicon recommended). ffmpeg is auto-downloaded on macOS when missing; on other platforms it must already be in `PATH`. You can also point the tool to existing binaries with `YT_DIARIZER_FFMPEG=/full/path/to/ffmpeg` and (optionally) `YT_DIARIZER_FFPROBE=/full/path/to/ffprobe`.
 - A Hugging Face access token saved to `token.txt` in the repository root (used for WhisperX/pyannote diarization). Module execution (`python -m yt_diarizer`) also looks for this file in the repository root before falling back to `yt_diarizer/token.txt`.
 - Internet access to download YouTube audio and WhisperX models.
+- `pkg-config` available in `PATH` (required to build the PyAV dependency on macOS/Linux). Install it with `brew install pkg-config` on macOS or `sudo apt-get install pkg-config` on Debian/Ubuntu.
 
 ## Quick start
 

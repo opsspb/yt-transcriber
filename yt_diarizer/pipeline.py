@@ -132,6 +132,22 @@ def install_python_dependencies(venv_python: str) -> None:
     """
     debug("Installing Python dependencies (pinned WhisperX stack) inside venv ...")
 
+    def _ensure_pkg_config() -> None:
+        # PyAV (pulled in by faster-whisper) relies on pkg-config to discover
+        # system libraries when building wheels from source. Skip the check on
+        # Windows, where pkg-config is uncommon and prebuilt wheels are used.
+        if sys.platform.startswith("win"):
+            return
+
+        if shutil.which("pkg-config"):
+            return
+
+        raise DependencyInstallationError(
+            "pkg-config not found in PATH. Install pkg-config (e.g., `brew install "
+            "pkg-config` on macOS or `sudo apt-get install pkg-config` on "
+            "Debian/Ubuntu) and rerun."
+        )
+
     pinned_versions = {
         "numpy": "1.26.4",
         # Torch 2.3+ exposes torch.utils._pytree.register_pytree_node required by
@@ -167,6 +183,8 @@ def install_python_dependencies(venv_python: str) -> None:
                 f"{description} failed with exit code {rc}.{extra_hint}\n"
                 f"Last output snippet:\n{snippet}"
             )
+
+    _ensure_pkg_config()
 
     _run(
         [venv_python, "-m", "pip", "install", "--upgrade", "pip"],
