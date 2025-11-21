@@ -38,9 +38,6 @@ def build_yt_dlp_command_variants(
         "--no-playlist",
         "-f",
         "bestaudio/best",
-        "-x",
-        "--audio-format",
-        "wav",
         "--user-agent",
         user_agent,
         "--extractor-args",
@@ -80,7 +77,7 @@ def build_yt_dlp_command_variants(
     return commands
 
 
-def download_audio_to_wav(
+def download_best_audio(
     downloader_bin: str,
     url: str,
     work_dir: str,
@@ -88,7 +85,7 @@ def download_audio_to_wav(
     ffmpeg_location: Optional[str],
 ) -> str:
     """
-    Use yt-dlp to grab best audio and convert to WAV via ffmpeg.
+    Use yt-dlp to grab the best available audio without re-encoding.
 
     Tries multiple strategies and raises a detailed error if all fail.
     """
@@ -120,18 +117,18 @@ def download_audio_to_wav(
             + (last_err_msg or "")
         )
 
-    expected = os.path.join(work_dir, "audio.wav")
-    if os.path.isfile(expected):
-        debug(f"Audio saved to {expected}")
-        return expected
+    candidates = [
+        path
+        for path in glob.glob(os.path.join(work_dir, "audio.*"))
+        if not path.endswith(".part")
+    ]
 
-    wav_candidates = glob.glob(os.path.join(work_dir, "*.wav"))
-    if not wav_candidates:
+    if not candidates:
         raise PipelineError(
-            "yt-dlp reported success but no .wav files were found in the workspace."
+            "yt-dlp reported success but no downloaded audio files were found in the workspace."
         )
 
-    wav_candidates.sort()
-    chosen = wav_candidates[0]
-    debug(f"Using WAV file: {chosen}")
+    candidates.sort(key=os.path.getmtime, reverse=True)
+    chosen = candidates[0]
+    debug(f"Using downloaded audio file: {chosen}")
     return chosen
