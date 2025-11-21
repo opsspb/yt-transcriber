@@ -45,6 +45,46 @@ def _download_and_extract_zip(url: str, archive_path: str, unpack_dir: str) -> N
         zf.extractall(unpack_dir)
 
 
+def _resolve_manual_ffmpeg() -> Tuple[str, str]:
+    """Return ffmpeg/ffprobe paths from YT_DIARIZER_FFMPEG/FFPROBE if set."""
+
+    def _validate(path: str, name: str) -> str:
+        if not path:
+            raise DependencyError(
+                f"Environment override for {name} was provided but is empty."
+            )
+        if not os.path.isfile(path):
+            raise DependencyError(
+                f"Environment override for {name} points to a missing file: {path}"
+            )
+        return path
+
+    ffmpeg_env = os.environ.get("YT_DIARIZER_FFMPEG")
+    ffprobe_env = os.environ.get("YT_DIARIZER_FFPROBE")
+
+    if not ffmpeg_env and not ffprobe_env:
+        return "", ""
+
+    ffmpeg_path = _validate(ffmpeg_env, "YT_DIARIZER_FFMPEG") if ffmpeg_env else ""
+    if ffprobe_env:
+        ffprobe_path = _validate(ffprobe_env, "YT_DIARIZER_FFPROBE")
+    else:
+        # Try locating ffprobe next to ffmpeg if only ffmpeg was provided.
+        if not ffmpeg_path:
+            raise DependencyError(
+                "YT_DIARIZER_FFPROBE must be set when YT_DIARIZER_FFMPEG is not provided."
+            )
+        candidate = os.path.join(os.path.dirname(ffmpeg_path), "ffprobe")
+        if not os.path.isfile(candidate):
+            raise DependencyError(
+                "YT_DIARIZER_FFMPEG was provided but ffprobe was not found next to it. "
+                "Set YT_DIARIZER_FFPROBE to the ffprobe binary."
+            )
+        ffprobe_path = candidate
+
+    return ffmpeg_path, ffprobe_path
+
+
 def _find_binary(unpack_dir: str, name: str) -> str:
     for root, _, files in os.walk(unpack_dir):
         if name in files:
@@ -61,6 +101,16 @@ def download_ffmpeg_if_missing(work_dir: str) -> str:
 
     Returns the ffmpeg binary path (either existing or downloaded).
     """
+    manual_ffmpeg, manual_ffprobe = _resolve_manual_ffmpeg()
+    if manual_ffmpeg and manual_ffprobe:
+        bin_dir = os.path.dirname(manual_ffmpeg)
+        os.environ["PATH"] = bin_dir + os.pathsep + os.environ.get("PATH", "")
+        debug(
+            "Using ffmpeg/ffprobe from environment overrides "
+            "YT_DIARIZER_FFMPEG/YT_DIARIZER_FFPROBE."
+        )
+        return manual_ffmpeg
+
     if shutil.which("ffmpeg") and shutil.which("ffprobe"):
         debug("ffmpeg/ffprobe already available in PATH.")
         ffmpeg_existing = shutil.which("ffmpeg")

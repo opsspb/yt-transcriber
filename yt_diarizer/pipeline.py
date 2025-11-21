@@ -30,6 +30,30 @@ def load_hf_token(script_dir: str) -> str:
     return token
 
 
+def _configure_cache_dirs(work_dir: str) -> None:
+    """Point cache-related env vars into the workspace for automatic cleanup."""
+
+    cache_root = os.path.join(work_dir, "cache")
+    os.makedirs(cache_root, exist_ok=True)
+
+    defaults = {
+        "HF_HOME": os.path.join(cache_root, "hf"),
+        "TRANSFORMERS_CACHE": os.path.join(cache_root, "transformers"),
+        "XDG_CACHE_HOME": cache_root,
+        "PYANNOTE_CACHE": os.path.join(cache_root, "pyannote"),
+        "TORCH_HOME": os.path.join(cache_root, "torch"),
+    }
+
+    for env_var, path in defaults.items():
+        if not os.environ.get(env_var):
+            os.environ[env_var] = path
+
+    debug(
+        "Caching directories redirected to workspace for cleanup: "
+        + ", ".join(f"{k}={os.environ[k]}" for k in defaults)
+    )
+
+
 def prompt_for_youtube_url() -> str:
     """Ask for YouTube URL and log the prompt."""
     log_line("Paste YouTube video URL:")
@@ -103,6 +127,8 @@ def run_pipeline_inside_venv(script_dir: str, work_dir: str) -> None:
         raise PipelineError("Internal error: workspace directory not provided.")
 
     debug(f"Workspace inside venv: {work_dir}")
+
+    _configure_cache_dirs(work_dir)
 
     hf_token = load_hf_token(script_dir)
     os.environ.setdefault("HF_TOKEN", hf_token)

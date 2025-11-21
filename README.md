@@ -5,7 +5,7 @@ A one-command CLI that downloads a YouTube video, transcribes it with WhisperX, 
 ## Requirements
 
 - Python 3.9.6 or newer available on the command line (confirmed to work on macOS 26.1).
-- macOS is the primary target (Apple Silicon recommended). ffmpeg is auto-downloaded on macOS when missing; on other platforms it must already be in `PATH`.
+- macOS is the primary target (Apple Silicon recommended). ffmpeg is auto-downloaded on macOS when missing; on other platforms it must already be in `PATH`. You can also point the tool to existing binaries with `YT_DIARIZER_FFMPEG=/full/path/to/ffmpeg` and (optionally) `YT_DIARIZER_FFPROBE=/full/path/to/ffprobe`.
 - A Hugging Face access token saved to `token.txt` in the repository root (used for WhisperX/pyannote diarization).
 - Internet access to download YouTube audio and WhisperX models.
 
@@ -40,4 +40,4 @@ The temporary workspace is deleted automatically after the run. If the process i
 
 - First run may take time while WhisperX dependencies download.
 - If `yt-dlp` fails on restricted videos, provide cookies as noted above or grant your terminal “Full Disk Access” on macOS so `--cookies-from-browser` can read Safari/Chrome cookies.
-- Ensure ffmpeg is in `PATH` on non-macOS platforms; otherwise the run will fail early.
+- Ensure ffmpeg is in `PATH` on non-macOS platforms; otherwise the run will fail early. You can avoid repeated model downloads between runs by keeping the default cache locations, but by default the script now stores Hugging Face, Transformers, pyannote, and Torch caches inside the temporary workspace so they are cleaned up automatically.
