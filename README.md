@@ -4,7 +4,7 @@ A one-command CLI that downloads a YouTube video, transcribes it with WhisperX, 
 
 ## Requirements
 
-- Python 3.10+ available on the command line.
+- Python 3.9.6 or newer available on the command line (confirmed to work on macOS 26.1).
 - macOS is the primary target (Apple Silicon recommended). ffmpeg is auto-downloaded on macOS when missing; on other platforms it must already be in `PATH`.
 - A Hugging Face access token saved to `token.txt` in the repository root (used for WhisperX/pyannote diarization).
 - Internet access to download YouTube audio and WhisperX models.
