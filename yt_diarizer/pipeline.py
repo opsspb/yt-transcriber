@@ -135,13 +135,20 @@ def ensure_pkg_config_available() -> None:
     if sys.platform.startswith("win"):
         return
 
+    if os.environ.get("YT_DIARIZER_ALLOW_MISSING_PKG_CONFIG"):
+        debug(
+            "Skipping pkg-config preflight because YT_DIARIZER_ALLOW_MISSING_PKG_CONFIG is set."
+        )
+        return
+
     if shutil.which("pkg-config"):
         return
 
     raise DependencyInstallationError(
         "pkg-config not found in PATH. Install pkg-config (e.g., `brew install "
         "pkg-config` on macOS or `sudo apt-get install pkg-config` on "
-        "Debian/Ubuntu) and rerun.",
+        "Debian/Ubuntu) and rerun, or set YT_DIARIZER_ALLOW_MISSING_PKG_CONFIG=1 "
+        "to bypass this preflight if you know pkg-config is unnecessary for your environment.",
     )
 
 
