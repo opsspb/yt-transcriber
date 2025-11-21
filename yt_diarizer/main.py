@@ -4,6 +4,7 @@ import datetime
 import os
 import shutil
 import sys
+from typing import Optional
 
 from .constants import ENV_STAGE_VAR, ENV_WORKDIR_VAR
 from .exceptions import DependencyError, PipelineError
@@ -11,7 +12,7 @@ from .logging_utils import debug, log_line, set_log_file
 from .pipeline import run_pipeline_inside_venv, setup_and_run_in_venv
 
 
-def main(script_dir: str | None = None, entrypoint_path: str | None = None) -> None:
+def main(script_dir: Optional[str] = None, entrypoint_path: Optional[str] = None) -> None:
     script_dir = script_dir or os.path.dirname(os.path.abspath(__file__))
     entrypoint_path = entrypoint_path or os.path.abspath(__file__)
 
