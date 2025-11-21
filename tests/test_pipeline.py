@@ -56,14 +56,32 @@ class InstallPythonDependenciesTests(unittest.TestCase):
         self.assertIn("exit code 1", message)
 
     def test_install_python_dependencies_requires_pkg_config_on_unix(self) -> None:
-        with mock.patch("sys.platform", "darwin"), mock.patch(
-            "shutil.which", return_value=None
+        with mock.patch(
+            "yt_diarizer.pipeline.ensure_pkg_config_available",
+            side_effect=DependencyInstallationError("pkg-config not found"),
         ), mock.patch("yt_diarizer.pipeline.run_logged_subprocess") as mocked_run:
             with self.assertRaises(DependencyInstallationError) as ctx:
                 pipeline.install_python_dependencies("/venv/python")
 
         self.assertIn("pkg-config not found", str(ctx.exception))
         mocked_run.assert_not_called()
+
+    def test_setup_and_run_in_venv_checks_pkg_config_first(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            entrypoint = os.path.join(tmpdir, "entry.py")
+            with open(entrypoint, "w", encoding="utf-8") as f:
+                f.write("print('noop')\n")
+
+            work_dir = os.path.join(tmpdir, "work")
+
+            with mock.patch(
+                "yt_diarizer.pipeline.ensure_pkg_config_available",
+                side_effect=DependencyInstallationError("pkg-config not found"),
+            ), mock.patch("yt_diarizer.pipeline.run_logged_subprocess") as mocked_run:
+                with self.assertRaises(DependencyInstallationError):
+                    pipeline.setup_and_run_in_venv(tmpdir, work_dir, entrypoint)
+
+            mocked_run.assert_not_called()
 
 
 class WorkspaceCleanupTests(unittest.TestCase):

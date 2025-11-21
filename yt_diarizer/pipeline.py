@@ -126,27 +126,32 @@ def save_final_outputs(
     return {"txt": txt_path, "json": json_target}
 
 
+def ensure_pkg_config_available() -> None:
+    """Ensure pkg-config is present on non-Windows platforms."""
+
+    # PyAV (pulled in by faster-whisper) relies on pkg-config to discover
+    # system libraries when building wheels from source. Skip the check on
+    # Windows, where pkg-config is uncommon and prebuilt wheels are used.
+    if sys.platform.startswith("win"):
+        return
+
+    if shutil.which("pkg-config"):
+        return
+
+    raise DependencyInstallationError(
+        "pkg-config not found in PATH. Install pkg-config (e.g., `brew install "
+        "pkg-config` on macOS or `sudo apt-get install pkg-config` on "
+        "Debian/Ubuntu) and rerun.",
+    )
+
+
 def install_python_dependencies(venv_python: str) -> None:
     """
     Install required Python packages (whisperx stack + yt-dlp) into the venv.
     """
     debug("Installing Python dependencies (pinned WhisperX stack) inside venv ...")
 
-    def _ensure_pkg_config() -> None:
-        # PyAV (pulled in by faster-whisper) relies on pkg-config to discover
-        # system libraries when building wheels from source. Skip the check on
-        # Windows, where pkg-config is uncommon and prebuilt wheels are used.
-        if sys.platform.startswith("win"):
-            return
-
-        if shutil.which("pkg-config"):
-            return
-
-        raise DependencyInstallationError(
-            "pkg-config not found in PATH. Install pkg-config (e.g., `brew install "
-            "pkg-config` on macOS or `sudo apt-get install pkg-config` on "
-            "Debian/Ubuntu) and rerun."
-        )
+    ensure_pkg_config_available()
 
     pinned_versions = {
         "numpy": "1.26.4",
@@ -183,8 +188,6 @@ def install_python_dependencies(venv_python: str) -> None:
                 f"{description} failed with exit code {rc}.{extra_hint}\n"
                 f"Last output snippet:\n{snippet}"
             )
-
-    _ensure_pkg_config()
 
     _run(
         [venv_python, "-m", "pip", "install", "--upgrade", "pip"],
@@ -633,6 +636,8 @@ def setup_and_run_in_venv(script_dir: str, work_dir: str, entrypoint_path: str) 
     Outer stage: create temporary venv in work_dir, install deps, then re-run this
     script inside that venv. Finally, return the exit code from the inner run.
     """
+    ensure_pkg_config_available()
+
     debug(f"Creating temporary virtualenv in {work_dir} ...")
 
     venv_dir = os.path.join(work_dir, "venv")
