@@ -5,6 +5,7 @@ import os
 import platform
 import shutil
 import sys
+import tarfile
 import zipfile
 from typing import Dict, List, Optional, Tuple
 
@@ -17,9 +18,21 @@ def _macos_ffmpeg_download() -> Tuple[List[str], str]:
     # Use yt-dlp maintained static builds that include both ffmpeg and ffprobe.
     arch = platform.machine().lower()
     if "arm" in arch or arch == "aarch64":
-        filename = "ffmpeg-master-latest-macos-arm64-static.zip"
+        base = "ffmpeg-master-latest-macos-arm64"
     else:
-        filename = "ffmpeg-master-latest-macos64-static.zip"
+        base = "ffmpeg-master-latest-macos64"
+
+    # Newer releases rotate between "static", "gpl" and "lgpl" flavors and may use
+    # either ZIP or tar.xz archives. Try a handful of plausible names to remain
+    # resilient to upstream filename changes.
+    candidate_names = [
+        f"{base}-static.zip",
+        f"{base}-gpl.zip",
+        f"{base}-lgpl.zip",
+        f"{base}-gpl.tar.xz",
+        f"{base}-lgpl.tar.xz",
+    ]
+    filename = candidate_names[0]
 
     # yt-dlp FFmpeg builds expose the latest assets under
     # `releases/latest/download/<asset>`, but some environments still resolve
@@ -38,17 +51,21 @@ def _macos_ffmpeg_download() -> Tuple[List[str], str]:
         assets = data.get("assets") or []
         for asset in assets:
             name = asset.get("name", "")
-            # The upstream repository ships macOS static builds as ZIPs.
-            if not name.endswith(".zip"):
+            if not name.endswith((".zip", ".tar.xz")):
                 continue
-            if "macos" not in name or "static" not in name:
+            if "macos" not in name:
                 continue
             if "arm64" in name and "arm" not in arch and arch != "aarch64":
                 continue
             if "arm64" not in name and ("arm" in arch or arch == "aarch64"):
                 continue
+            if not any(flavor in name for flavor in ("static", "gpl", "lgpl")):
+                continue
+
             api_urls.append(asset.get("browser_download_url", ""))
             filename = name
+            # Prefer the first matching asset exposed by the API; others remain
+            # available as fallbacks below.
             break
     except Exception as exc:  # pragma: no cover - best effort network call
         debug(f"Failed to resolve latest ffmpeg asset from GitHub API: {exc}")
@@ -58,17 +75,19 @@ def _macos_ffmpeg_download() -> Tuple[List[str], str]:
         "https://github.com/yt-dlp/FFmpeg-Builds/releases/download/latest",
     ]
 
-    fallback_urls = [f"{base}/{filename}" for base in bases]
+    fallback_urls = [f"{base}/{name}" for base in bases for name in candidate_names]
     return [url for url in api_urls + fallback_urls if url], filename
 
 
-def _download_and_extract_zip(urls: List[str], archive_path: str, unpack_dir: str) -> None:
+def _download_and_extract_archive(urls: List[str], archive_path: str, unpack_dir: str) -> None:
     import urllib.request
     from urllib.error import HTTPError, URLError
 
+    attempted_urls: List[str] = []
     last_error: Optional[Exception] = None
     for url in urls:
         debug(f"Downloading ffmpeg binary from {url} ...")
+        attempted_urls.append(url)
         try:
             urllib.request.urlretrieve(url, archive_path)
             break
@@ -76,14 +95,31 @@ def _download_and_extract_zip(urls: List[str], archive_path: str, unpack_dir: st
             last_error = exc
             debug(f"ffmpeg download failed from {url}: {exc}")
     else:
+        details = (
+            f"Failed to download ffmpeg/ffprobe static build after trying multiple URLs. "
+            f"Tried: {attempted_urls}. "
+            f"Last error: {last_error}"
+        )
         raise DependencyError(
-            "Failed to download ffmpeg/ffprobe static build after trying multiple URLs; "
-            "please check your network connection or provide ffmpeg manually."
+            details + "; please check your network connection or provide ffmpeg manually."
         ) from last_error
 
     debug(f"Extracting ffmpeg archive to {unpack_dir} ...")
-    with zipfile.ZipFile(archive_path, "r") as zf:
-        zf.extractall(unpack_dir)
+    try:
+        if archive_path.endswith(".zip"):
+            with zipfile.ZipFile(archive_path, "r") as zf:
+                zf.extractall(unpack_dir)
+        elif archive_path.endswith((".tar.xz", ".tar")):
+            with tarfile.open(archive_path, "r:*") as tf:
+                tf.extractall(unpack_dir)
+        else:
+            raise DependencyError(
+                f"Unsupported ffmpeg archive format for {archive_path}; provide ffmpeg manually."
+            )
+    except Exception as exc:
+        raise DependencyError(
+            f"Failed to extract ffmpeg archive '{archive_path}' to '{unpack_dir}': {exc}"
+        ) from exc
 
 
 def _resolve_manual_ffmpeg() -> Tuple[str, str]:
@@ -167,7 +203,7 @@ def download_ffmpeg_if_missing(work_dir: str) -> str:
     archive_path = os.path.join(work_dir, filename)
     unpack_dir = os.path.join(work_dir, "ffmpeg_unpacked")
 
-    _download_and_extract_zip(ffmpeg_zip_urls, archive_path, unpack_dir)
+    _download_and_extract_archive(ffmpeg_zip_urls, archive_path, unpack_dir)
 
     ffmpeg_path = _find_binary(unpack_dir, "ffmpeg")
     ffprobe_path = _find_binary(unpack_dir, "ffprobe")
