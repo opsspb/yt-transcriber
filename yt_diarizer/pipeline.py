@@ -130,8 +130,11 @@ def install_python_dependencies(venv_python: str) -> None:
 
     pinned_versions = {
         "numpy": "1.26.4",
-        "torch": "2.1.2",
-        "torchaudio": "2.1.2",
+        # Torch 2.3+ exposes torch.utils._pytree.register_pytree_node required by
+        # transformers >=4.57 used by WhisperX. Older torch builds (e.g., 2.1.x)
+        # trigger AttributeError during import, so we pin to a compatible stack.
+        "torch": "2.3.1",
+        "torchaudio": "2.3.1",
         "whisperx": "3.1.1",
         "yt-dlp": "2024.11.18",
     }
