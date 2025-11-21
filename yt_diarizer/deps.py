@@ -22,9 +22,19 @@ def _macos_ffmpeg_download() -> Tuple[List[str], str]:
     # Upstream has recently renamed macOS ARM builds to "apple-silicon"; keep both
     # historical and current patterns as fallbacks.
     base_names = (
-        ["ffmpeg-master-latest-macos-arm64", "ffmpeg-master-latest-macos-apple-silicon"]
+        [
+            "ffmpeg-master-latest-macos-arm64",
+            "ffmpeg-master-latest-macos-apple-silicon",
+            "ffmpeg-latest-macos-arm64",
+            "ffmpeg-latest-macos-apple-silicon",
+        ]
         if is_arm
-        else ["ffmpeg-master-latest-macos64", "ffmpeg-master-latest-macos-intel"]
+        else [
+            "ffmpeg-master-latest-macos64",
+            "ffmpeg-master-latest-macos-intel",
+            "ffmpeg-latest-macos64",
+            "ffmpeg-latest-macos-intel",
+        ]
     )
 
     # Newer releases rotate between "static", "gpl" and "lgpl" flavors and may use
