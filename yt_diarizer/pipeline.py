@@ -2,14 +2,17 @@
 
 import datetime
 import os
+import platform
 import shutil
 import subprocess
 import sys
+import tarfile
 import tempfile
+import zipfile
 from typing import Dict, List, Optional
 
 from .constants import ENV_STAGE_VAR, ENV_URL_VAR, ENV_WORKDIR_VAR, TOKEN_FILENAME
-from .deps import download_ffmpeg_if_missing, ensure_dependencies
+from .deps import ensure_dependencies
 from .downloader import download_audio_to_wav
 from .exceptions import DependencyError, PipelineError
 from .logging_utils import debug, log_line
@@ -188,6 +191,263 @@ def install_python_dependencies(venv_python: str) -> None:
                 pass
 
 
+# ---------------------------------------------------------------------------
+# ffmpeg resolution order:
+# 1) YT_DIARIZER_FFMPEG_PATH / YT_DIARIZER_FFPROBE_PATH environment overrides
+# 2) Existing ffmpeg/ffprobe on PATH
+# 3) macOS: download from the previously working ColorsWind GitHub release
+# 4) Linux/Windows: download from yt-dlp/FFmpeg-Builds
+# If downloads fail, instruct the user to install ffmpeg manually or set env vars.
+# ---------------------------------------------------------------------------
+
+
+def _log_error(message: str) -> None:
+    """Log errors consistently using the debug logger."""
+
+    debug(message)
+
+
+def _validate_binary(path: str, description: str) -> str:
+    if not path:
+        raise DependencyError(f"{description} was empty.")
+    if not os.path.isfile(path):
+        raise DependencyError(f"{description} points to a missing file: {path}")
+    return path
+
+
+def _ffmpeg_from_env() -> Optional[Dict[str, str]]:
+    """Return ffmpeg/ffprobe paths if provided via env overrides.
+
+    Accepts both current (YT_DIARIZER_FFMPEG_PATH/FFPROBE_PATH) and legacy
+    (YT_DIARIZER_FFMPEG/YT_DIARIZER_FFPROBE) variable names.
+    """
+
+    def _resolve_path(value: str, exe_name: str) -> str:
+        if os.path.isdir(value):
+            candidate = os.path.join(value, exe_name)
+        else:
+            candidate = value
+        return _validate_binary(candidate, f"Environment override for {exe_name}")
+
+    ffmpeg_env = os.environ.get("YT_DIARIZER_FFMPEG_PATH") or os.environ.get(
+        "YT_DIARIZER_FFMPEG"
+    )
+    ffprobe_env = os.environ.get("YT_DIARIZER_FFPROBE_PATH") or os.environ.get(
+        "YT_DIARIZER_FFPROBE"
+    )
+
+    if not ffmpeg_env and not ffprobe_env:
+        return None
+
+    exe_name = "ffmpeg.exe" if os.name == "nt" else "ffmpeg"
+    ffmpeg_path = _resolve_path(ffmpeg_env, exe_name) if ffmpeg_env else ""
+
+    probe_name = "ffprobe.exe" if os.name == "nt" else "ffprobe"
+    if ffprobe_env:
+        ffprobe_path = _resolve_path(ffprobe_env, probe_name)
+    elif ffmpeg_path:
+        sibling = os.path.join(os.path.dirname(ffmpeg_path), probe_name)
+        if os.path.isfile(sibling):
+            ffprobe_path = sibling
+        else:
+            raise DependencyError(
+                "YT_DIARIZER_FFMPEG_PATH was provided but ffprobe was not found next to it. "
+                "Set YT_DIARIZER_FFPROBE_PATH or point to a directory containing both binaries."
+            )
+    else:
+        raise DependencyError(
+            "YT_DIARIZER_FFPROBE_PATH must be set when YT_DIARIZER_FFMPEG_PATH is absent."
+        )
+
+    debug(f"Using ffmpeg from YT_DIARIZER_FFMPEG_PATH: {ffmpeg_path}")
+    return {"ffmpeg": ffmpeg_path, "ffprobe": ffprobe_path}
+
+
+def _ffmpeg_from_path() -> Optional[Dict[str, str]]:
+    ffmpeg_path = shutil.which("ffmpeg")
+    ffprobe_path = shutil.which("ffprobe")
+    if ffmpeg_path and ffprobe_path:
+        debug(
+            "Using ffmpeg/ffprobe from system PATH: "
+            f"ffmpeg={ffmpeg_path}, ffprobe={ffprobe_path}"
+        )
+        return {"ffmpeg": ffmpeg_path, "ffprobe": ffprobe_path}
+    return None
+
+
+def _download_and_extract_archive(urls: List[str], archive_path: str, unpack_dir: str) -> None:
+    import urllib.request
+    from urllib.error import HTTPError, URLError
+
+    attempted: List[str] = []
+    last_error: Optional[Exception] = None
+
+    for url in urls:
+        attempted.append(url)
+        debug(f"Attempting ffmpeg download from {url}")
+        try:
+            urllib.request.urlretrieve(url, archive_path)
+            last_error = None
+            break
+        except (HTTPError, URLError, TimeoutError, OSError) as exc:
+            last_error = exc
+            _log_error(f"ffmpeg download failed from {url}: {exc}")
+
+    if last_error:
+        raise RuntimeError(
+            "Automatic ffmpeg download failed; tried URLs: "
+            + ", ".join(attempted)
+            + ". "
+            "Install ffmpeg so it is on PATH or set YT_DIARIZER_FFMPEG_PATH."
+        )
+
+    os.makedirs(unpack_dir, exist_ok=True)
+    debug(f"Extracting ffmpeg archive to {unpack_dir} ...")
+    try:
+        if archive_path.endswith(".zip"):
+            with zipfile.ZipFile(archive_path, "r") as zf:
+                zf.extractall(unpack_dir)
+        elif archive_path.endswith((".tar.xz", ".tar")):
+            with tarfile.open(archive_path, "r:*") as tf:
+                tf.extractall(unpack_dir)
+        else:
+            raise RuntimeError(f"Unsupported ffmpeg archive format: {archive_path}")
+    except Exception as exc:
+        raise RuntimeError(
+            f"Failed to extract ffmpeg archive '{archive_path}': {exc}"
+        ) from exc
+
+
+def _find_binary(unpack_dir: str, name: str) -> str:
+    for root, _, files in os.walk(unpack_dir):
+        if name in files:
+            return os.path.join(root, name)
+    raise RuntimeError(f"Downloaded ffmpeg archive missing '{name}' binary")
+
+
+def download_ffmpeg_for_macos(work_dir: str) -> Dict[str, str]:
+    """Download ffmpeg/ffprobe for macOS using the previously working release."""
+
+    colorswind_urls = [
+        "https://github.com/ColorsWind/FFmpeg-macOS/releases/download/"
+        "n5.0.1-patch3/FFmpeg-shared-n5.0.1-OSX-universal.zip",
+        "https://github.com/ColorsWind/FFmpeg-macOS/releases/download/"
+        "n5.0.1-patch3/FFmpeg-n5.0.1-OSX-universal.zip",
+    ]
+
+    filename = os.path.basename(colorswind_urls[0])
+    archive_path = os.path.join(work_dir, filename)
+    unpack_dir = os.path.join(work_dir, "ffmpeg_macos")
+
+    _download_and_extract_archive(colorswind_urls, archive_path, unpack_dir)
+
+    ffmpeg_path = _find_binary(unpack_dir, "ffmpeg")
+    ffprobe_path = _find_binary(unpack_dir, "ffprobe")
+
+    for binary_path in (ffmpeg_path, ffprobe_path):
+        try:
+            os.chmod(binary_path, 0o755)
+        except Exception:
+            pass
+
+    return {"ffmpeg": ffmpeg_path, "ffprobe": ffprobe_path}
+
+
+def _build_ffmpeg_urls_for_other_platforms() -> List[str]:
+    system = sys.platform
+
+    if system.startswith("linux"):
+        base_names = ["ffmpeg-master-latest-linux64-gpl", "ffmpeg-latest-linux64-gpl"]
+        suffixes = [".tar.xz", ".zip"]
+    elif system.startswith("win"):
+        base_names = ["ffmpeg-master-latest-win64-gpl", "ffmpeg-latest-win64-gpl"]
+        suffixes = [".zip"]
+    else:
+        base_names = ["ffmpeg-master-latest-macos-universal"]
+        suffixes = [".zip"]
+
+    urls: List[str] = []
+    for base in base_names:
+        for suffix in suffixes:
+            name = f"{base}{suffix}"
+            urls.append(
+                f"https://github.com/yt-dlp/FFmpeg-Builds/releases/latest/download/{name}"
+            )
+    return urls
+
+
+def download_ffmpeg_for_other_platforms(work_dir: str) -> Dict[str, str]:
+    urls = _build_ffmpeg_urls_for_other_platforms()
+    if not urls:
+        raise RuntimeError("No ffmpeg download URLs defined for this platform")
+
+    filename = os.path.basename(urls[0])
+    archive_path = os.path.join(work_dir, filename)
+    unpack_dir = os.path.join(work_dir, "ffmpeg_other")
+
+    _download_and_extract_archive(urls, archive_path, unpack_dir)
+
+    ffmpeg_name = "ffmpeg.exe" if os.name == "nt" else "ffmpeg"
+    ffprobe_name = "ffprobe.exe" if os.name == "nt" else "ffprobe"
+    ffmpeg_path = _find_binary(unpack_dir, ffmpeg_name)
+    ffprobe_path = _find_binary(unpack_dir, ffprobe_name)
+
+    for binary_path in (ffmpeg_path, ffprobe_path):
+        try:
+            os.chmod(binary_path, 0o755)
+        except Exception:
+            pass
+
+    return {"ffmpeg": ffmpeg_path, "ffprobe": ffprobe_path}
+
+
+def ensure_ffmpeg(work_dir: str) -> Dict[str, str]:
+    """
+    Ensure ffmpeg and ffprobe are available.
+
+    Priority order:
+    1. Environment overrides (YT_DIARIZER_FFMPEG_PATH / YT_DIARIZER_FFPROBE_PATH).
+    2. Binaries already on PATH.
+    3. macOS: download from the previously working ColorsWind release.
+    4. Other platforms: download from yt-dlp/FFmpeg-Builds.
+    """
+
+    try:
+        env_paths = _ffmpeg_from_env()
+        if env_paths:
+            bin_dir = os.path.dirname(env_paths["ffmpeg"])
+            os.environ["PATH"] = bin_dir + os.pathsep + os.environ.get("PATH", "")
+            return env_paths
+    except DependencyError as exc:
+        _log_error(str(exc))
+
+    path_paths = _ffmpeg_from_path()
+    if path_paths:
+        return path_paths
+
+    if sys.platform == "darwin":
+        try:
+            download_paths = download_ffmpeg_for_macos(work_dir)
+        except RuntimeError as exc:
+            raise RuntimeError(
+                "Automatic macOS ffmpeg download failed. Install ffmpeg so it appears on PATH "
+                "or set YT_DIARIZER_FFMPEG_PATH/FFPROBE_PATH."
+            ) from exc
+    else:
+        try:
+            download_paths = download_ffmpeg_for_other_platforms(work_dir)
+        except RuntimeError as exc:
+            raise RuntimeError(
+                "Automatic ffmpeg download failed. Install ffmpeg so it appears on PATH or set "
+                "YT_DIARIZER_FFMPEG_PATH/FFPROBE_PATH."
+            ) from exc
+
+    bin_dir = os.path.dirname(download_paths["ffmpeg"])
+    os.environ["PATH"] = bin_dir + os.pathsep + os.environ.get("PATH", "")
+    debug(f"Using downloaded ffmpeg at {download_paths['ffmpeg']}")
+    return download_paths
+
+
 def run_pipeline_inside_venv(script_dir: str, work_dir: str) -> None:
     """Inner stage: actual diarization pipeline inside the venv."""
     if not work_dir:
@@ -200,18 +460,8 @@ def run_pipeline_inside_venv(script_dir: str, work_dir: str) -> None:
     hf_token = load_hf_token(script_dir)
     os.environ.setdefault("HF_TOKEN", hf_token)
 
-    if sys.platform != "darwin":
-        ffmpeg_env = os.environ.get("YT_DIARIZER_FFMPEG") or os.environ.get(
-            "YT_DIARIZER_FFPROBE"
-        )
-        if not (shutil.which("ffmpeg") and shutil.which("ffprobe")) and not ffmpeg_env:
-            raise DependencyError(
-                "ffmpeg/ffprobe not found in PATH. On non-macOS platforms auto-download "
-                "is unavailable; install ffmpeg manually or provide YT_DIARIZER_FFMPEG "
-                "and YT_DIARIZER_FFPROBE."
-            )
-
-    ffmpeg_path = download_ffmpeg_if_missing(work_dir)
+    ffmpeg_paths = ensure_ffmpeg(work_dir)
+    ffmpeg_path = ffmpeg_paths["ffmpeg"]
 
     deps = ensure_dependencies()
     yt_downloader = deps["yt_downloader"]

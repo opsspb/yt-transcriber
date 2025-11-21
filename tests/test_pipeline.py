@@ -80,16 +80,43 @@ class TokenResolutionTests(unittest.TestCase):
 
 
 class FfmpegChecksTests(unittest.TestCase):
-    def test_non_macos_without_ffmpeg_fails_fast(self) -> None:
-        with mock.patch("yt_diarizer.deps.sys.platform", "linux"), mock.patch(
-            "shutil.which", return_value=None
-        ):
-            with self.assertRaises(DependencyError) as ctx:
-                from yt_diarizer import deps
+    def test_env_override_used_when_present(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            ffmpeg_path = os.path.join(tmpdir, "ffmpeg")
+            ffprobe_path = os.path.join(tmpdir, "ffprobe")
+            for path in (ffmpeg_path, ffprobe_path):
+                with open(path, "w", encoding="utf-8") as f:
+                    f.write("#!/bin/sh\n")
 
-                deps.download_ffmpeg_if_missing("/tmp/work")
+            with mock.patch.dict(
+                os.environ,
+                {
+                    "YT_DIARIZER_FFMPEG_PATH": ffmpeg_path,
+                    "YT_DIARIZER_FFPROBE_PATH": ffprobe_path,
+                },
+                clear=False,
+            ):
+                paths = pipeline.ensure_ffmpeg(tmpdir)
 
-        self.assertIn("auto-download is only implemented on macOS", str(ctx.exception))
+            self.assertEqual(paths["ffmpeg"], ffmpeg_path)
+            self.assertEqual(paths["ffprobe"], ffprobe_path)
+
+    def test_path_detection_short_circuits_download(self) -> None:
+        with mock.patch("shutil.which", side_effect=["/usr/bin/ffmpeg", "/usr/bin/ffprobe"]):
+            paths = pipeline.ensure_ffmpeg("/tmp/work")
+
+        self.assertEqual(paths["ffmpeg"], "/usr/bin/ffmpeg")
+        self.assertEqual(paths["ffprobe"], "/usr/bin/ffprobe")
+
+    def test_download_failure_on_non_macos_reports_runtime_error(self) -> None:
+        with mock.patch("sys.platform", "linux"), mock.patch(
+            "yt_diarizer.pipeline.download_ffmpeg_for_other_platforms",
+            side_effect=RuntimeError("network error"),
+        ), mock.patch("yt_diarizer.pipeline._ffmpeg_from_path", return_value=None):
+            with self.assertRaises(RuntimeError) as ctx:
+                pipeline.ensure_ffmpeg("/tmp/work")
+
+        self.assertIn("Automatic ffmpeg download failed", str(ctx.exception))
 
 
 if __name__ == "__main__":
