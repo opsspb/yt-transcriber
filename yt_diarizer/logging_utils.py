@@ -1,5 +1,6 @@
 """Logging helpers for yt_diarizer."""
 
+import datetime
 import os
 from typing import Optional
 
@@ -12,6 +13,14 @@ def set_log_file(script_dir: str) -> None:
     """Configure global log file path (log.txt next to the script)."""
     global LOG_FILE_PATH
     LOG_FILE_PATH = os.path.join(script_dir, LOG_FILE_NAME)
+
+    # Ensure the log starts fresh for every run.
+    try:
+        with open(LOG_FILE_PATH, "w", encoding="utf-8"):
+            pass
+    except Exception:
+        # Logging must never break the pipeline
+        LOG_FILE_PATH = None
 
 
 def _append_to_log_file(msg: str) -> None:
@@ -29,8 +38,10 @@ def _append_to_log_file(msg: str) -> None:
 
 def log_line(msg: str) -> None:
     """Print to stdout and append the same line to log.txt."""
-    print(msg)
-    _append_to_log_file(msg)
+    timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    formatted = f"[{timestamp}] {msg}"
+    print(formatted)
+    _append_to_log_file(formatted)
 
 
 def debug(msg: str) -> None:
