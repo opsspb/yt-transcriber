@@ -127,7 +127,6 @@ def install_python_dependencies(venv_python: str) -> None:
         "torch": "2.1.2",
         "torchaudio": "2.1.2",
         "whisperx": "3.1.1",
-        "pyannote.audio": "3.2.0",
         "yt-dlp": "2024.11.18",
     }
 
@@ -175,12 +174,11 @@ def install_python_dependencies(venv_python: str) -> None:
                 "pip",
                 "install",
                 f"whisperx=={pinned_versions['whisperx']}",
-                f"pyannote.audio=={pinned_versions['pyannote.audio']}",
                 f"yt-dlp=={pinned_versions['yt-dlp']}",
                 "--constraint",
                 constraint_path,
             ],
-            "install WhisperX, pyannote, yt-dlp",
+            "install WhisperX and yt-dlp",
         )
     finally:
         if constraint_path and os.path.exists(constraint_path):

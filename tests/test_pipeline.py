@@ -29,9 +29,9 @@ class InstallPythonDependenciesTests(unittest.TestCase):
         whisper_cmd, whisper_desc = calls[2]
         self.assertIn("install WhisperX", whisper_desc)
         self.assertIn("whisperx==3.1.1", whisper_cmd)
-        self.assertIn("pyannote.audio==3.2.0", whisper_cmd)
         self.assertIn("yt-dlp==2024.11.18", whisper_cmd)
         self.assertIn("--constraint", whisper_cmd)
+        self.assertNotIn("pyannote.audio", " ".join(whisper_cmd))
 
     def test_install_python_dependencies_failure_reports_snippet(self) -> None:
         with mock.patch(
