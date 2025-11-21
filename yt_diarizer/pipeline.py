@@ -11,7 +11,7 @@ import tarfile
 import tempfile
 import zipfile
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple
+from typing import Callable, Dict, List, Optional, Tuple
 
 from .constants import ENV_STAGE_VAR, ENV_URL_VAR, ENV_WORKDIR_VAR, TOKEN_FILENAME
 from .deps import ensure_dependencies
@@ -320,8 +320,12 @@ def _download_and_extract_archive(urls: List[str], archive_path: str, unpack_dir
         ) from exc
 
 
-def _find_ffmpeg_binaries(root: Path, logger) -> Tuple[Optional[Path], Optional[Path]]:
+def _find_ffmpeg_binaries(
+    root: Path, log: Callable[[str], None]
+) -> Tuple[Optional[Path], Optional[Path]]:
     """Recursively search for ffmpeg/ffprobe binaries under root (case-insensitive)."""
+
+    log(f"[yt-diarizer] Searching for ffmpeg/ffprobe under {root}")
 
     ffmpeg_path: Optional[Path] = None
     ffprobe_path: Optional[Path] = None
@@ -330,20 +334,28 @@ def _find_ffmpeg_binaries(root: Path, logger) -> Tuple[Optional[Path], Optional[
         if not path.is_file():
             continue
 
+        log(f"[yt-diarizer] Checking file: {path}")
+
         name = path.name.lower()
         if name == "ffmpeg" and ffmpeg_path is None:
             ffmpeg_path = path
+            log(f"[yt-diarizer] Found ffmpeg candidate: {path}")
         elif name == "ffprobe" and ffprobe_path is None:
             ffprobe_path = path
+            log(f"[yt-diarizer] Found ffprobe candidate: {path}")
 
         if ffmpeg_path and ffprobe_path:
             break
 
-    logger.info(
-        "[yt-diarizer] ffmpeg search results: ffmpeg=%s, ffprobe=%s",
-        ffmpeg_path,
-        ffprobe_path,
+    log(
+        "[yt-diarizer] ffmpeg search results: ffmpeg=%s, ffprobe=%s"
+        % (ffmpeg_path, ffprobe_path)
     )
+    if ffmpeg_path is None:
+        raise RuntimeError(
+            f"Could not locate 'ffmpeg' binary after scanning extracted archive under {root}"
+        )
+
     return ffmpeg_path, ffprobe_path
 
 
@@ -353,32 +365,30 @@ def _make_executable(path: Path) -> None:
 
 
 def _prepare_macos_ffmpeg(
-    extract_dir: Path, workspace_dir: Path, logger
+    extract_dir: Path, workspace_dir: Path, log: Callable[[str], None]
 ) -> Dict[str, Optional[str]]:
-    ffmpeg_src, ffprobe_src = _find_ffmpeg_binaries(extract_dir, logger)
-    if ffmpeg_src is None:
-        raise RuntimeError(
-            f"Downloaded ffmpeg archive in {extract_dir} does not contain an 'ffmpeg' binary"
-        )
+    ffmpeg_src, ffprobe_src = _find_ffmpeg_binaries(extract_dir, log)
 
     ffmpeg_dir = workspace_dir / "ffmpeg_macos" / "bin"
     ffmpeg_dir.mkdir(parents=True, exist_ok=True)
 
     ffmpeg_dst = ffmpeg_dir / "ffmpeg"
+    log(f"[yt-diarizer] Copying ffmpeg to {ffmpeg_dst}")
     shutil.copy2(ffmpeg_src, ffmpeg_dst)
     _make_executable(ffmpeg_dst)
 
     ffprobe_dst = ffmpeg_dir / "ffprobe"
     if ffprobe_src is not None:
+        log(f"[yt-diarizer] Copying ffprobe to {ffprobe_dst}")
         shutil.copy2(ffprobe_src, ffprobe_dst)
         _make_executable(ffprobe_dst)
     else:
-        logger.warning(
-            "[yt-diarizer] ffprobe not found in downloaded archive; yt-dlp may still fail "
-            "and you may need a different build"
+        log(
+            "[WARN] [yt-diarizer] ffprobe not found in downloaded archive; yt-dlp may still "
+            "fail and you may need a different build"
         )
 
-    logger.info("[yt-diarizer] Using downloaded ffmpeg at %s", ffmpeg_dst)
+    log(f"[yt-diarizer] Using downloaded ffmpeg at {ffmpeg_dst}")
     return {
         "ffmpeg": str(ffmpeg_dst),
         "ffprobe": str(ffprobe_dst) if ffprobe_dst.exists() else None,
@@ -503,9 +513,8 @@ def ensure_ffmpeg(work_dir: str) -> Dict[str, Optional[str]]:
     bin_dir = os.path.dirname(download_paths["ffmpeg"])
     os.environ["PATH"] = bin_dir + os.pathsep + os.environ.get("PATH", "")
     debug(
-        "Using downloaded ffmpeg at %s (ffprobe=%s)",
-        download_paths["ffmpeg"],
-        download_paths.get("ffprobe"),
+        f"Using downloaded ffmpeg at {download_paths['ffmpeg']} "
+        f"(ffprobe={download_paths.get('ffprobe')})"
     )
     return download_paths
 
