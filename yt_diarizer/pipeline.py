@@ -15,7 +15,7 @@ from typing import Callable, Dict, List, Optional, Tuple
 
 from .constants import ENV_STAGE_VAR, ENV_URL_VAR, ENV_WORKDIR_VAR, TOKEN_FILENAME
 from .deps import ensure_dependencies
-from .downloader import download_audio_to_wav
+from .downloader import download_best_audio
 from .exceptions import DependencyError, PipelineError
 from .logging_utils import debug, log_line
 from .process import run_logged_subprocess
@@ -562,10 +562,12 @@ def run_pipeline_inside_venv(script_dir: str, work_dir: str) -> None:
     whisperx_bin = deps["whisperx"]
 
     url = _resolve_youtube_url()
-    wav_path = download_audio_to_wav(
+    audio_path = download_best_audio(
         yt_downloader, url, work_dir, script_dir, ffmpeg_location
     )
-    json_result_path = run_whisperx_cli(whisperx_bin, wav_path, hf_token, work_dir)
+    json_result_path = run_whisperx_cli(
+        whisperx_bin, audio_path, hf_token, work_dir
+    )
 
     transcript_lines = build_diarized_transcript_from_json(json_result_path)
     outputs = save_final_outputs(transcript_lines, json_result_path, script_dir)
