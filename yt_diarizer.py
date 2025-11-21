@@ -203,16 +203,20 @@ def load_hf_token(script_dir: str) -> str:
     return token
 
 
-def download_ffmpeg_if_missing(work_dir: str) -> None:
+def download_ffmpeg_if_missing(work_dir: str) -> str:
     """
     Ensure ffmpeg is in PATH.
     If missing, download a macOS universal binary into work_dir and prepend its bin dir to PATH.
+
+    Returns the ffmpeg binary path (either existing or downloaded).
     """
     import urllib.request
 
     if shutil.which("ffmpeg"):
         debug("ffmpeg already available in PATH.")
-        return
+        ffmpeg_existing = shutil.which("ffmpeg")
+        assert ffmpeg_existing is not None
+        return ffmpeg_existing
 
     if sys.platform != "darwin":
         raise DependencyError("ffmpeg not found and auto-download is only implemented on macOS.")
@@ -250,6 +254,7 @@ def download_ffmpeg_if_missing(work_dir: str) -> None:
     bin_dir = os.path.dirname(ffmpeg_path)
     os.environ["PATH"] = bin_dir + os.pathsep + os.environ.get("PATH", "")
     debug(f"Using downloaded ffmpeg at {ffmpeg_path}")
+    return ffmpeg_path
 
 
 def find_executable(candidates: List[str]) -> str:
@@ -287,6 +292,7 @@ def build_yt_dlp_command_variants(
     url: str,
     work_dir: str,
     script_dir: str,
+    ffmpeg_path: Optional[str] = None,
 ) -> List[List[str]]:
     """
     Build a list of yt-dlp command variants to try.
@@ -322,6 +328,9 @@ def build_yt_dlp_command_variants(
         url,
     ]
 
+    if ffmpeg_path:
+        base_cmd.extend(["--ffmpeg-location", os.path.dirname(ffmpeg_path)])
+
     commands: List[List[str]] = []
 
     # 1) plain
@@ -354,6 +363,7 @@ def download_audio_to_wav(
     url: str,
     work_dir: str,
     script_dir: str,
+    ffmpeg_path: Optional[str],
 ) -> str:
     """
     Use yt-dlp to grab best audio and convert to WAV via ffmpeg.
@@ -361,7 +371,9 @@ def download_audio_to_wav(
     Tries multiple strategies and raises a detailed error if all fail.
     """
     debug("Starting audio download via yt-dlp...")
-    commands = build_yt_dlp_command_variants(downloader_bin, url, work_dir, script_dir)
+    commands = build_yt_dlp_command_variants(
+        downloader_bin, url, work_dir, script_dir, ffmpeg_path
+    )
     last_err_msg: Optional[str] = None
 
     for idx, cmd in enumerate(commands, start=1):
@@ -520,14 +532,16 @@ def run_pipeline_inside_venv(script_dir: str, work_dir: str) -> None:
     hf_token = load_hf_token(script_dir)
     os.environ.setdefault("HF_TOKEN", hf_token)
 
-    download_ffmpeg_if_missing(work_dir)
+    ffmpeg_path = download_ffmpeg_if_missing(work_dir)
 
     deps = ensure_dependencies()
     yt_downloader = deps["yt_downloader"]
     whisperx_bin = deps["whisperx"]
 
     url = prompt_for_youtube_url()
-    wav_path = download_audio_to_wav(yt_downloader, url, work_dir, script_dir)
+    wav_path = download_audio_to_wav(
+        yt_downloader, url, work_dir, script_dir, ffmpeg_path
+    )
     json_result_path = run_whisperx_cli(whisperx_bin, wav_path, hf_token, work_dir)
 
     transcript_lines = build_diarized_transcript_from_json(json_result_path)
