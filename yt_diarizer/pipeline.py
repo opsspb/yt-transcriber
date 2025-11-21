@@ -195,7 +195,7 @@ def install_python_dependencies(venv_python: str) -> None:
 
 # ---------------------------------------------------------------------------
 # ffmpeg resolution order:
-# 1) YT_DIARIZER_FFMPEG_PATH / YT_DIARIZER_FFPROBE_PATH environment overrides
+# 1) YT_DIARIZER_FFMPEG / YT_DIARIZER_FFPROBE environment overrides
 # 2) Existing ffmpeg/ffprobe on PATH
 # 3) macOS: download from the previously working ColorsWind GitHub release
 # 4) Linux/Windows: download from yt-dlp/FFmpeg-Builds
@@ -220,8 +220,9 @@ def _validate_binary(path: str, description: str) -> str:
 def _ffmpeg_from_env() -> Optional[Dict[str, str]]:
     """Return ffmpeg/ffprobe paths if provided via env overrides.
 
-    Accepts both current (YT_DIARIZER_FFMPEG_PATH/FFPROBE_PATH) and legacy
-    (YT_DIARIZER_FFMPEG/YT_DIARIZER_FFPROBE) variable names.
+    When *either* override is present we require both binaries to resolve
+    successfully. This prevents silently falling back to downloads when the
+    user explicitly provided paths.
     """
 
     def _resolve_path(value: str, exe_name: str) -> str:
@@ -231,20 +232,21 @@ def _ffmpeg_from_env() -> Optional[Dict[str, str]]:
             candidate = value
         return _validate_binary(candidate, f"Environment override for {exe_name}")
 
-    ffmpeg_env = os.environ.get("YT_DIARIZER_FFMPEG_PATH") or os.environ.get(
-        "YT_DIARIZER_FFMPEG"
+    ffmpeg_env = os.environ.get("YT_DIARIZER_FFMPEG") or os.environ.get(
+        "YT_DIARIZER_FFMPEG_PATH"
     )
-    ffprobe_env = os.environ.get("YT_DIARIZER_FFPROBE_PATH") or os.environ.get(
-        "YT_DIARIZER_FFPROBE"
+    ffprobe_env = os.environ.get("YT_DIARIZER_FFPROBE") or os.environ.get(
+        "YT_DIARIZER_FFPROBE_PATH"
     )
 
     if not ffmpeg_env and not ffprobe_env:
         return None
 
     exe_name = "ffmpeg.exe" if os.name == "nt" else "ffmpeg"
+    probe_name = "ffprobe.exe" if os.name == "nt" else "ffprobe"
+
     ffmpeg_path = _resolve_path(ffmpeg_env, exe_name) if ffmpeg_env else ""
 
-    probe_name = "ffprobe.exe" if os.name == "nt" else "ffprobe"
     if ffprobe_env:
         ffprobe_path = _resolve_path(ffprobe_env, probe_name)
     elif ffmpeg_path:
@@ -253,15 +255,23 @@ def _ffmpeg_from_env() -> Optional[Dict[str, str]]:
             ffprobe_path = sibling
         else:
             raise DependencyError(
-                "YT_DIARIZER_FFMPEG_PATH was provided but ffprobe was not found next to it. "
-                "Set YT_DIARIZER_FFPROBE_PATH or point to a directory containing both binaries."
+                "YT_DIARIZER_FFMPEG was provided but ffprobe was not found next to it. "
+                "Set YT_DIARIZER_FFPROBE or point to a directory containing both binaries."
             )
     else:
         raise DependencyError(
-            "YT_DIARIZER_FFPROBE_PATH must be set when YT_DIARIZER_FFMPEG_PATH is absent."
+            "YT_DIARIZER_FFPROBE must be set when YT_DIARIZER_FFMPEG is absent."
         )
 
-    debug(f"Using ffmpeg from YT_DIARIZER_FFMPEG_PATH: {ffmpeg_path}")
+    ffmpeg_dir = os.path.dirname(ffmpeg_path)
+    probe_dir = os.path.dirname(ffprobe_path)
+    if ffmpeg_dir != probe_dir:
+        raise DependencyError(
+            "YT_DIARIZER_FFMPEG and YT_DIARIZER_FFPROBE must reside in the same directory "
+            "so yt-dlp can load both via --ffmpeg-location."
+        )
+
+    debug(f"Using ffmpeg from environment override: {ffmpeg_path}")
     return {"ffmpeg": ffmpeg_path, "ffprobe": ffprobe_path}
 
 
@@ -480,18 +490,27 @@ def ensure_ffmpeg(work_dir: str) -> Dict[str, Optional[str]]:
     4. Other platforms: download from yt-dlp/FFmpeg-Builds.
     """
 
-    try:
-        env_paths = _ffmpeg_from_env()
-        if env_paths:
-            bin_dir = os.path.dirname(env_paths["ffmpeg"])
-            os.environ["PATH"] = bin_dir + os.pathsep + os.environ.get("PATH", "")
-            return env_paths
-    except DependencyError as exc:
-        _log_error(str(exc))
+    env_paths = _ffmpeg_from_env()
+    if env_paths:
+        bin_dir = os.path.dirname(env_paths["ffmpeg"])
+        os.environ["PATH"] = bin_dir + os.pathsep + os.environ.get("PATH", "")
+        debug(
+            "Respecting environment overrides for ffmpeg/ffprobe; skipping auto-download."
+        )
+        return {
+            "ffmpeg": env_paths["ffmpeg"],
+            "ffprobe": env_paths.get("ffprobe"),
+            "location_dir": bin_dir,
+        }
 
     path_paths = _ffmpeg_from_path()
     if path_paths:
-        return path_paths
+        bin_dir = os.path.dirname(path_paths["ffmpeg"])
+        return {
+            "ffmpeg": path_paths["ffmpeg"],
+            "ffprobe": path_paths.get("ffprobe"),
+            "location_dir": bin_dir,
+        }
 
     if sys.platform == "darwin":
         try:
@@ -516,7 +535,11 @@ def ensure_ffmpeg(work_dir: str) -> Dict[str, Optional[str]]:
         f"Using downloaded ffmpeg at {download_paths['ffmpeg']} "
         f"(ffprobe={download_paths.get('ffprobe')})"
     )
-    return download_paths
+    return {
+        "ffmpeg": download_paths["ffmpeg"],
+        "ffprobe": download_paths.get("ffprobe"),
+        "location_dir": bin_dir,
+    }
 
 
 def run_pipeline_inside_venv(script_dir: str, work_dir: str) -> None:
@@ -532,7 +555,7 @@ def run_pipeline_inside_venv(script_dir: str, work_dir: str) -> None:
     os.environ.setdefault("HF_TOKEN", hf_token)
 
     ffmpeg_paths = ensure_ffmpeg(work_dir)
-    ffmpeg_path = ffmpeg_paths["ffmpeg"]
+    ffmpeg_location = ffmpeg_paths["location_dir"]
 
     deps = ensure_dependencies()
     yt_downloader = deps["yt_downloader"]
@@ -540,7 +563,7 @@ def run_pipeline_inside_venv(script_dir: str, work_dir: str) -> None:
 
     url = _resolve_youtube_url()
     wav_path = download_audio_to_wav(
-        yt_downloader, url, work_dir, script_dir, ffmpeg_path
+        yt_downloader, url, work_dir, script_dir, ffmpeg_location
     )
     json_result_path = run_whisperx_cli(whisperx_bin, wav_path, hf_token, work_dir)
 
