@@ -135,6 +135,11 @@ def install_python_dependencies(venv_python: str) -> None:
         # trigger AttributeError during import, so we pin to a compatible stack.
         "torch": "2.3.1",
         "torchaudio": "2.3.1",
+        # faster-whisper 1.x changed TranscriptionOptions to require new
+        # arguments that WhisperX 3.1.1 does not pass. Pin to the last
+        # compatible 0.x release to prevent runtime failures during
+        # diarization.
+        "faster-whisper": "0.10.1",
         "whisperx": "3.1.1",
         "yt-dlp": "2024.11.18",
     }
@@ -180,6 +185,7 @@ def install_python_dependencies(venv_python: str) -> None:
                 f"numpy=={pinned_versions['numpy']}\n"
                 f"torch=={pinned_versions['torch']}\n"
                 f"torchaudio=={pinned_versions['torchaudio']}\n"
+                f"faster-whisper=={pinned_versions['faster-whisper']}\n"
             )
 
         _run(
