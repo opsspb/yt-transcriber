@@ -14,7 +14,7 @@ def build_yt_dlp_command_variants(
     url: str,
     work_dir: str,
     script_dir: str,
-    ffmpeg_path: Optional[str] = None,
+    ffmpeg_location: Optional[str] = None,
 ) -> List[List[str]]:
     """
     Build a list of yt-dlp command variants to try.
@@ -50,8 +50,8 @@ def build_yt_dlp_command_variants(
         url,
     ]
 
-    if ffmpeg_path:
-        base_cmd.extend(["--ffmpeg-location", os.path.dirname(ffmpeg_path)])
+    if ffmpeg_location:
+        base_cmd.extend(["--ffmpeg-location", ffmpeg_location])
 
     commands: List[List[str]] = []
 
@@ -85,7 +85,7 @@ def download_audio_to_wav(
     url: str,
     work_dir: str,
     script_dir: str,
-    ffmpeg_path: Optional[str],
+    ffmpeg_location: Optional[str],
 ) -> str:
     """
     Use yt-dlp to grab best audio and convert to WAV via ffmpeg.
@@ -94,7 +94,7 @@ def download_audio_to_wav(
     """
     debug("Starting audio download via yt-dlp...")
     commands = build_yt_dlp_command_variants(
-        downloader_bin, url, work_dir, script_dir, ffmpeg_path
+        downloader_bin, url, work_dir, script_dir, ffmpeg_location
     )
     last_err_msg: Optional[str] = None
 
