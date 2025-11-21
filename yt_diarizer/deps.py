@@ -19,21 +19,26 @@ def _macos_ffmpeg_download() -> Tuple[List[str], str]:
     arch = platform.machine().lower()
     is_arm = "arm" in arch or arch == "aarch64"
 
-    # Upstream has recently renamed macOS ARM builds to "apple-silicon"; keep both
-    # historical and current patterns as fallbacks.
+    # Upstream has recently renamed macOS ARM builds to "apple-silicon" and
+    # occasionally ships "universal" archives that work on both ARM and Intel.
+    # Keep historical and current patterns as fallbacks.
     base_names = (
         [
             "ffmpeg-master-latest-macos-arm64",
             "ffmpeg-master-latest-macos-apple-silicon",
+            "ffmpeg-master-latest-macos-universal",
             "ffmpeg-latest-macos-arm64",
             "ffmpeg-latest-macos-apple-silicon",
+            "ffmpeg-latest-macos-universal",
         ]
         if is_arm
         else [
             "ffmpeg-master-latest-macos64",
             "ffmpeg-master-latest-macos-intel",
+            "ffmpeg-master-latest-macos-universal",
             "ffmpeg-latest-macos64",
             "ffmpeg-latest-macos-intel",
+            "ffmpeg-latest-macos-universal",
         ]
     )
 
@@ -67,7 +72,17 @@ def _macos_ffmpeg_download() -> Tuple[List[str], str]:
         assets = data.get("assets") or []
 
         def _is_arm_build(name: str) -> bool:
-            return any(token in name for token in ("arm64", "aarch64", "apple-silicon"))
+            return any(
+                token in name
+                for token in (
+                    "arm64",
+                    "aarch64",
+                    "apple-silicon",
+                )
+            )
+
+        def _is_universal(name: str) -> bool:
+            return "universal" in name
 
         for asset in assets:
             name = asset.get("name", "")
@@ -76,10 +91,12 @@ def _macos_ffmpeg_download() -> Tuple[List[str], str]:
             if "macos" not in name:
                 continue
             is_asset_arm = _is_arm_build(name)
-            if is_asset_arm and not is_arm:
-                continue
-            if not is_asset_arm and is_arm:
-                continue
+            is_asset_universal = _is_universal(name)
+            if not is_asset_universal:
+                if is_asset_arm and not is_arm:
+                    continue
+                if not is_asset_arm and is_arm:
+                    continue
             if not any(flavor in name for flavor in ("static", "gpl", "lgpl")):
                 continue
 
