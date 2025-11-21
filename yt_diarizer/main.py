@@ -14,7 +14,11 @@ from .exceptions import (
     PipelineError,
 )
 from .logging_utils import debug, log_line, set_log_file
-from .pipeline import run_pipeline_inside_venv, setup_and_run_in_venv
+from .pipeline import (
+    ensure_pkg_config_available,
+    run_pipeline_inside_venv,
+    setup_and_run_in_venv,
+)
 
 
 def main(script_dir: Optional[str] = None, entrypoint_path: Optional[str] = None) -> None:
@@ -45,6 +49,8 @@ def main(script_dir: Optional[str] = None, entrypoint_path: Optional[str] = None
         args = parser.parse_args()
         if args.cookies:
             os.environ.setdefault("YT_DIARIZER_COOKIES", args.cookies)
+
+        ensure_pkg_config_available()
 
     if stage == "inner":
         # Inner stage: workspace and venv already set up.
