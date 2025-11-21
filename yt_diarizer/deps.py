@@ -1,5 +1,6 @@
 """Dependency and download utilities."""
 
+import json
 import os
 import platform
 import shutil
@@ -24,11 +25,41 @@ def _macos_ffmpeg_download() -> Tuple[List[str], str]:
     # `releases/latest/download/<asset>`, but some environments still resolve
     # `releases/download/latest/<asset>` successfully. Try both to reduce
     # spurious download failures.
+    api_url = "https://api.github.com/repos/yt-dlp/FFmpeg-Builds/releases/latest"
+    api_urls: List[str] = []
+
+    # Try resolving the latest asset name dynamically via the GitHub API to
+    # avoid breakages when the upstream project rotates filenames.
+    try:
+        import urllib.request
+
+        with urllib.request.urlopen(api_url, timeout=10) as resp:  # type: ignore[attr-defined]
+            data = json.load(resp)
+        assets = data.get("assets") or []
+        for asset in assets:
+            name = asset.get("name", "")
+            # The upstream repository ships macOS static builds as ZIPs.
+            if not name.endswith(".zip"):
+                continue
+            if "macos" not in name or "static" not in name:
+                continue
+            if "arm64" in name and "arm" not in arch and arch != "aarch64":
+                continue
+            if "arm64" not in name and ("arm" in arch or arch == "aarch64"):
+                continue
+            api_urls.append(asset.get("browser_download_url", ""))
+            filename = name
+            break
+    except Exception as exc:  # pragma: no cover - best effort network call
+        debug(f"Failed to resolve latest ffmpeg asset from GitHub API: {exc}")
+
     bases = [
         "https://github.com/yt-dlp/FFmpeg-Builds/releases/latest/download",
         "https://github.com/yt-dlp/FFmpeg-Builds/releases/download/latest",
     ]
-    return [f"{base}/{filename}" for base in bases], filename
+
+    fallback_urls = [f"{base}/{filename}" for base in bases]
+    return [url for url in api_urls + fallback_urls if url], filename
 
 
 def _download_and_extract_zip(urls: List[str], archive_path: str, unpack_dir: str) -> None:
