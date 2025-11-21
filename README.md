@@ -39,6 +39,8 @@ The temporary workspace is deleted automatically after the run. If the process i
 
 ## Tips and troubleshooting
 
-- First run may take time while WhisperX dependencies download.
+- First run may take time while WhisperX dependencies download. The tool pins
+  faster-whisper to 0.10.1 to avoid an upstream API change in 1.x that breaks
+  WhisperX 3.1.1.
 - If `yt-dlp` fails on restricted videos, provide cookies as noted above or grant your terminal “Full Disk Access” on macOS so `--cookies-from-browser` can read Safari/Chrome cookies.
 - Ensure ffmpeg is in `PATH` on non-macOS platforms; otherwise the run will fail early. You can avoid repeated model downloads between runs by keeping the default cache locations, but by default the script now stores Hugging Face, Transformers, pyannote, and Torch caches inside the temporary workspace so they are cleaned up automatically.
