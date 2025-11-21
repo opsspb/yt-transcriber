@@ -4,12 +4,14 @@ import datetime
 import os
 import platform
 import shutil
+import stat
 import subprocess
 import sys
 import tarfile
 import tempfile
 import zipfile
-from typing import Dict, List, Optional
+from pathlib import Path
+from typing import Dict, List, Optional, Tuple
 
 from .constants import ENV_STAGE_VAR, ENV_URL_VAR, ENV_WORKDIR_VAR, TOKEN_FILENAME
 from .deps import ensure_dependencies
@@ -318,6 +320,71 @@ def _download_and_extract_archive(urls: List[str], archive_path: str, unpack_dir
         ) from exc
 
 
+def _find_ffmpeg_binaries(root: Path, logger) -> Tuple[Optional[Path], Optional[Path]]:
+    """Recursively search for ffmpeg/ffprobe binaries under root (case-insensitive)."""
+
+    ffmpeg_path: Optional[Path] = None
+    ffprobe_path: Optional[Path] = None
+
+    for path in root.rglob("*"):
+        if not path.is_file():
+            continue
+
+        name = path.name.lower()
+        if name == "ffmpeg" and ffmpeg_path is None:
+            ffmpeg_path = path
+        elif name == "ffprobe" and ffprobe_path is None:
+            ffprobe_path = path
+
+        if ffmpeg_path and ffprobe_path:
+            break
+
+    logger.info(
+        "[yt-diarizer] ffmpeg search results: ffmpeg=%s, ffprobe=%s",
+        ffmpeg_path,
+        ffprobe_path,
+    )
+    return ffmpeg_path, ffprobe_path
+
+
+def _make_executable(path: Path) -> None:
+    mode = path.stat().st_mode
+    path.chmod(mode | stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH)
+
+
+def _prepare_macos_ffmpeg(
+    extract_dir: Path, workspace_dir: Path, logger
+) -> Dict[str, Optional[str]]:
+    ffmpeg_src, ffprobe_src = _find_ffmpeg_binaries(extract_dir, logger)
+    if ffmpeg_src is None:
+        raise RuntimeError(
+            f"Downloaded ffmpeg archive in {extract_dir} does not contain an 'ffmpeg' binary"
+        )
+
+    ffmpeg_dir = workspace_dir / "ffmpeg_macos" / "bin"
+    ffmpeg_dir.mkdir(parents=True, exist_ok=True)
+
+    ffmpeg_dst = ffmpeg_dir / "ffmpeg"
+    shutil.copy2(ffmpeg_src, ffmpeg_dst)
+    _make_executable(ffmpeg_dst)
+
+    ffprobe_dst = ffmpeg_dir / "ffprobe"
+    if ffprobe_src is not None:
+        shutil.copy2(ffprobe_src, ffprobe_dst)
+        _make_executable(ffprobe_dst)
+    else:
+        logger.warning(
+            "[yt-diarizer] ffprobe not found in downloaded archive; yt-dlp may still fail "
+            "and you may need a different build"
+        )
+
+    logger.info("[yt-diarizer] Using downloaded ffmpeg at %s", ffmpeg_dst)
+    return {
+        "ffmpeg": str(ffmpeg_dst),
+        "ffprobe": str(ffprobe_dst) if ffprobe_dst.exists() else None,
+    }
+
+
 def _find_binary(unpack_dir: str, name: str) -> str:
     for root, _, files in os.walk(unpack_dir):
         if name in files:
@@ -325,7 +392,7 @@ def _find_binary(unpack_dir: str, name: str) -> str:
     raise RuntimeError(f"Downloaded ffmpeg archive missing '{name}' binary")
 
 
-def download_ffmpeg_for_macos(work_dir: str) -> Dict[str, str]:
+def download_ffmpeg_for_macos(work_dir: str) -> Dict[str, Optional[str]]:
     """Download ffmpeg/ffprobe for macOS using the previously working release."""
 
     colorswind_urls = [
@@ -337,20 +404,11 @@ def download_ffmpeg_for_macos(work_dir: str) -> Dict[str, str]:
 
     filename = os.path.basename(colorswind_urls[0])
     archive_path = os.path.join(work_dir, filename)
-    unpack_dir = os.path.join(work_dir, "ffmpeg_macos")
+    unpack_dir = os.path.join(work_dir, "ffmpeg_macos_unpack")
 
     _download_and_extract_archive(colorswind_urls, archive_path, unpack_dir)
 
-    ffmpeg_path = _find_binary(unpack_dir, "ffmpeg")
-    ffprobe_path = _find_binary(unpack_dir, "ffprobe")
-
-    for binary_path in (ffmpeg_path, ffprobe_path):
-        try:
-            os.chmod(binary_path, 0o755)
-        except Exception:
-            pass
-
-    return {"ffmpeg": ffmpeg_path, "ffprobe": ffprobe_path}
+    return _prepare_macos_ffmpeg(Path(unpack_dir), Path(work_dir), debug)
 
 
 def _build_ffmpeg_urls_for_other_platforms() -> List[str]:
@@ -401,7 +459,7 @@ def download_ffmpeg_for_other_platforms(work_dir: str) -> Dict[str, str]:
     return {"ffmpeg": ffmpeg_path, "ffprobe": ffprobe_path}
 
 
-def ensure_ffmpeg(work_dir: str) -> Dict[str, str]:
+def ensure_ffmpeg(work_dir: str) -> Dict[str, Optional[str]]:
     """
     Ensure ffmpeg and ffprobe are available.
 
@@ -444,7 +502,11 @@ def ensure_ffmpeg(work_dir: str) -> Dict[str, str]:
 
     bin_dir = os.path.dirname(download_paths["ffmpeg"])
     os.environ["PATH"] = bin_dir + os.pathsep + os.environ.get("PATH", "")
-    debug(f"Using downloaded ffmpeg at {download_paths['ffmpeg']}")
+    debug(
+        "Using downloaded ffmpeg at %s (ffprobe=%s)",
+        download_paths["ffmpeg"],
+        download_paths.get("ffprobe"),
+    )
     return download_paths
 
 
