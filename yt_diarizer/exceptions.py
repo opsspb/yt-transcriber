@@ -5,5 +5,9 @@ class DependencyError(RuntimeError):
     """Raised when a required external dependency is missing or broken."""
 
 
+class DependencyInstallationError(DependencyError):
+    """Raised when installing Python dependencies inside the venv fails."""
+
+
 class PipelineError(RuntimeError):
     """Raised when any step of the pipeline fails."""

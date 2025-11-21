@@ -16,7 +16,11 @@ from typing import Callable, Dict, List, Optional, Tuple
 from .constants import ENV_STAGE_VAR, ENV_URL_VAR, ENV_WORKDIR_VAR, TOKEN_FILENAME
 from .deps import ensure_dependencies
 from .downloader import download_best_audio
-from .exceptions import DependencyError, PipelineError
+from .exceptions import (
+    DependencyError,
+    DependencyInstallationError,
+    PipelineError,
+)
 from .logging_utils import debug, log_line
 from .process import run_logged_subprocess
 from .transcriber import build_diarized_transcript_from_json, run_whisperx_cli
@@ -147,9 +151,21 @@ def install_python_dependencies(venv_python: str) -> None:
     def _run(cmd: List[str], description: str) -> None:
         rc, lines = run_logged_subprocess(cmd, description)
         if rc != 0:
-            snippet = "\n".join([ln for ln in lines if ln][-50:])
-            raise DependencyError(
-                f"{description} failed with exit code {rc}.\nLast output snippet:\n{snippet}"
+            snippet_lines = [ln for ln in lines if ln]
+            snippet = "\n".join(snippet_lines[-50:])
+
+            extra_hint = ""
+            joined_lower = "\n".join(snippet_lines).lower()
+            if "pkg-config is required for building pyav" in joined_lower:
+                extra_hint = (
+                    "\nThis failure indicates pkg-config is missing. Install pkg-config "
+                    "(e.g., `brew install pkg-config` on macOS or "
+                    "`sudo apt-get install pkg-config` on Debian/Ubuntu) and rerun."
+                )
+
+            raise DependencyInstallationError(
+                f"{description} failed with exit code {rc}.{extra_hint}\n"
+                f"Last output snippet:\n{snippet}"
             )
 
     _run(
