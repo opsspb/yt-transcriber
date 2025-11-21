@@ -26,8 +26,8 @@ class InstallPythonDependenciesTests(unittest.TestCase):
 
         torch_cmd, torch_desc = calls[2]
         self.assertIn("install PyTorch CPU wheels", torch_desc)
-        self.assertIn("torch==2.1.2", torch_cmd)
-        self.assertIn("torchaudio==2.1.2", torch_cmd)
+        self.assertIn("torch==2.3.1", torch_cmd)
+        self.assertIn("torchaudio==2.3.1", torch_cmd)
         self.assertIn("--index-url", torch_cmd)
 
         whisper_cmd, whisper_desc = calls[3]
