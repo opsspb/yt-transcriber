@@ -234,7 +234,9 @@ def download_ffmpeg_if_missing(work_dir: str) -> str:
 
     if sys.platform != "darwin":
         raise DependencyError(
-            "ffmpeg/ffprobe not found and auto-download is only implemented on macOS."
+            "ffmpeg/ffprobe not found and auto-download is only implemented on macOS. "
+            "Install ffmpeg manually or set YT_DIARIZER_FFMPEG / YT_DIARIZER_FFPROBE to "
+            "existing binaries."
         )
 
     ffmpeg_zip_urls, filename = _macos_ffmpeg_download()

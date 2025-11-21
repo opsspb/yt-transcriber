@@ -1,20 +1,34 @@
 """Entry point wiring for the yt_diarizer package."""
 
+import argparse
 import datetime
 import os
 import shutil
 import sys
 from typing import Optional
 
-from .constants import ENV_STAGE_VAR, ENV_WORKDIR_VAR
+from .constants import ENV_STAGE_VAR, ENV_URL_VAR, ENV_WORKDIR_VAR
 from .exceptions import DependencyError, PipelineError
 from .logging_utils import debug, log_line, set_log_file
 from .pipeline import run_pipeline_inside_venv, setup_and_run_in_venv
 
 
 def main(script_dir: Optional[str] = None, entrypoint_path: Optional[str] = None) -> None:
-    script_dir = script_dir or os.path.dirname(os.path.abspath(__file__))
+    script_dir = script_dir or os.path.abspath(os.path.join(os.path.dirname(__file__), os.pardir))
     entrypoint_path = entrypoint_path or os.path.abspath(__file__)
+
+    parser = argparse.ArgumentParser(
+        description=(
+            "Download a YouTube video's audio and produce a diarized transcript with WhisperX."
+        )
+    )
+    parser.add_argument("url", nargs="?", help="YouTube URL to transcribe")
+    parser.add_argument(
+        "-c",
+        "--cookies",
+        dest="cookies",
+        help="Path to cookies.txt for yt-dlp (optional override for YT_DIARIZER_COOKIES)",
+    )
 
     # Configure logging and mark run header
     set_log_file(script_dir)
@@ -22,6 +36,11 @@ def main(script_dir: Optional[str] = None, entrypoint_path: Optional[str] = None
     log_line(f"=== yt-diarizer run started at {run_id} ===")
 
     stage = os.environ.get(ENV_STAGE_VAR, "outer")
+    args: Optional[argparse.Namespace] = None
+    if stage != "inner":
+        args = parser.parse_args()
+        if args.cookies:
+            os.environ.setdefault("YT_DIARIZER_COOKIES", args.cookies)
 
     if stage == "inner":
         # Inner stage: workspace and venv already set up.
@@ -43,6 +62,8 @@ def main(script_dir: Optional[str] = None, entrypoint_path: Optional[str] = None
 
     exit_code = 0
     try:
+        if args and args.url:
+            os.environ[ENV_URL_VAR] = args.url
         exit_code = setup_and_run_in_venv(script_dir, work_dir, entrypoint_path)
     except (DependencyError, PipelineError) as exc:
         log_line(f"ERROR: {exc}")

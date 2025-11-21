@@ -5,9 +5,10 @@ import os
 import shutil
 import subprocess
 import sys
-from typing import Dict, List
+import tempfile
+from typing import Dict, List, Optional
 
-from .constants import ENV_STAGE_VAR, ENV_WORKDIR_VAR, TOKEN_FILENAME
+from .constants import ENV_STAGE_VAR, ENV_URL_VAR, ENV_WORKDIR_VAR, TOKEN_FILENAME
 from .deps import download_ffmpeg_if_missing, ensure_dependencies
 from .downloader import download_audio_to_wav
 from .exceptions import DependencyError, PipelineError
@@ -16,18 +17,34 @@ from .process import run_logged_subprocess
 from .transcriber import build_diarized_transcript_from_json, run_whisperx_cli
 
 
+def _token_search_paths(script_dir: str) -> List[str]:
+    candidates = []
+
+    script_dir = os.path.abspath(script_dir)
+    candidates.append(script_dir)
+
+    parent_dir = os.path.abspath(os.path.join(script_dir, os.pardir))
+    if os.path.basename(script_dir) == "yt_diarizer" and parent_dir not in candidates:
+        candidates.insert(0, parent_dir)
+
+    return [os.path.join(path, TOKEN_FILENAME) for path in candidates]
+
+
 def load_hf_token(script_dir: str) -> str:
-    """Load Hugging Face token from token.txt next to the script."""
-    token_path = os.path.join(script_dir, TOKEN_FILENAME)
-    if not os.path.isfile(token_path):
-        raise DependencyError(
-            f"token.txt not found at {token_path}."
-        )
-    with open(token_path, "r", encoding="utf-8") as f:
-        token = f.read().strip()
-    if not token:
-        raise DependencyError("token.txt is empty.")
-    return token
+    """Load Hugging Face token, preferring the repository root when run as a module."""
+
+    for token_path in _token_search_paths(script_dir):
+        if os.path.isfile(token_path):
+            with open(token_path, "r", encoding="utf-8") as f:
+                token = f.read().strip()
+            if not token:
+                raise DependencyError("token.txt is empty.")
+            return token
+
+    raise DependencyError(
+        "token.txt not found. Place it in the repository root next to yt_diarizer.py "
+        "or inside the yt_diarizer package."
+    )
 
 
 def _configure_cache_dirs(work_dir: str) -> None:
@@ -63,6 +80,14 @@ def prompt_for_youtube_url() -> str:
     return url
 
 
+def _resolve_youtube_url() -> str:
+    from_env = os.environ.get(ENV_URL_VAR)
+    if from_env:
+        debug("Using YouTube URL provided on the command line.")
+        return from_env
+    return prompt_for_youtube_url()
+
+
 def save_final_outputs(
     transcript_lines: List[str],
     json_path: str,
@@ -94,29 +119,75 @@ def save_final_outputs(
 
 def install_python_dependencies(venv_python: str) -> None:
     """
-    Install required Python packages (whisperx, yt-dlp) into the venv.
+    Install required Python packages (whisperx stack + yt-dlp) into the venv.
     """
-    debug("Installing Python dependencies (whisperx, yt-dlp) inside venv ...")
+    debug("Installing Python dependencies (pinned WhisperX stack) inside venv ...")
 
-    rc, lines = run_logged_subprocess(
+    pinned_versions = {
+        "torch": "2.1.2",
+        "torchaudio": "2.1.2",
+        "whisperx": "3.1.1",
+        "pyannote.audio": "3.2.0",
+        "yt-dlp": "2024.11.18",
+    }
+
+    def _run(cmd: List[str], description: str) -> None:
+        rc, lines = run_logged_subprocess(cmd, description)
+        if rc != 0:
+            snippet = "\n".join([ln for ln in lines if ln][-50:])
+            raise DependencyError(
+                f"{description} failed with exit code {rc}.\nLast output snippet:\n{snippet}"
+            )
+
+    _run(
         [venv_python, "-m", "pip", "install", "--upgrade", "pip"],
         "pip upgrade",
     )
-    if rc != 0:
-        snippet = "\n".join([ln for ln in lines if ln][-50:])
-        raise DependencyError(
-            f"pip upgrade failed with exit code {rc}.\nLast output snippet:\n{snippet}"
-        )
 
-    rc, lines = run_logged_subprocess(
-        [venv_python, "-m", "pip", "install", "whisperx", "yt-dlp"],
-        "pip install whisperx yt-dlp",
+    torch_index = "https://download.pytorch.org/whl/cpu"
+    _run(
+        [
+            venv_python,
+            "-m",
+            "pip",
+            "install",
+            f"torch=={pinned_versions['torch']}",
+            f"torchaudio=={pinned_versions['torchaudio']}",
+            "--index-url",
+            torch_index,
+        ],
+        "install PyTorch CPU wheels",
     )
-    if rc != 0:
-        snippet = "\n".join([ln for ln in lines if ln][-50:])
-        raise DependencyError(
-            f"pip install failed with exit code {rc}.\nLast output snippet:\n{snippet}"
+
+    constraint_path: Optional[str] = None
+    try:
+        with tempfile.NamedTemporaryFile("w", delete=False) as tmp:
+            constraint_path = tmp.name
+            tmp.write(
+                f"torch=={pinned_versions['torch']}\n"
+                f"torchaudio=={pinned_versions['torchaudio']}\n"
+            )
+
+        _run(
+            [
+                venv_python,
+                "-m",
+                "pip",
+                "install",
+                f"whisperx=={pinned_versions['whisperx']}",
+                f"pyannote.audio=={pinned_versions['pyannote.audio']}",
+                f"yt-dlp=={pinned_versions['yt-dlp']}",
+                "--constraint",
+                constraint_path,
+            ],
+            "install WhisperX, pyannote, yt-dlp",
         )
+    finally:
+        if constraint_path and os.path.exists(constraint_path):
+            try:
+                os.remove(constraint_path)
+            except OSError:
+                pass
 
 
 def run_pipeline_inside_venv(script_dir: str, work_dir: str) -> None:
@@ -131,13 +202,24 @@ def run_pipeline_inside_venv(script_dir: str, work_dir: str) -> None:
     hf_token = load_hf_token(script_dir)
     os.environ.setdefault("HF_TOKEN", hf_token)
 
+    if sys.platform != "darwin":
+        ffmpeg_env = os.environ.get("YT_DIARIZER_FFMPEG") or os.environ.get(
+            "YT_DIARIZER_FFPROBE"
+        )
+        if not (shutil.which("ffmpeg") and shutil.which("ffprobe")) and not ffmpeg_env:
+            raise DependencyError(
+                "ffmpeg/ffprobe not found in PATH. On non-macOS platforms auto-download "
+                "is unavailable; install ffmpeg manually or provide YT_DIARIZER_FFMPEG "
+                "and YT_DIARIZER_FFPROBE."
+            )
+
     ffmpeg_path = download_ffmpeg_if_missing(work_dir)
 
     deps = ensure_dependencies()
     yt_downloader = deps["yt_downloader"]
     whisperx_bin = deps["whisperx"]
 
-    url = prompt_for_youtube_url()
+    url = _resolve_youtube_url()
     wav_path = download_audio_to_wav(
         yt_downloader, url, work_dir, script_dir, ffmpeg_path
     )
