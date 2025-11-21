@@ -84,8 +84,6 @@ def run_whisperx_cli(
         "cpu",
         "--threads",
         str(threads),
-        "--vad_method",
-        "pyannote",
         "--output_format",
         "json",
         "--output_dir",
