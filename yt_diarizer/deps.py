@@ -17,21 +17,27 @@ def _macos_ffmpeg_download() -> Tuple[List[str], str]:
     """Return candidate URLs and archive name for macOS ffmpeg+ffprobe build."""
     # Use yt-dlp maintained static builds that include both ffmpeg and ffprobe.
     arch = platform.machine().lower()
-    if "arm" in arch or arch == "aarch64":
-        base = "ffmpeg-master-latest-macos-arm64"
-    else:
-        base = "ffmpeg-master-latest-macos64"
+    is_arm = "arm" in arch or arch == "aarch64"
+
+    # Upstream has recently renamed macOS ARM builds to "apple-silicon"; keep both
+    # historical and current patterns as fallbacks.
+    base_names = (
+        ["ffmpeg-master-latest-macos-arm64", "ffmpeg-master-latest-macos-apple-silicon"]
+        if is_arm
+        else ["ffmpeg-master-latest-macos64", "ffmpeg-master-latest-macos-intel"]
+    )
 
     # Newer releases rotate between "static", "gpl" and "lgpl" flavors and may use
     # either ZIP or tar.xz archives. Try a handful of plausible names to remain
     # resilient to upstream filename changes.
-    candidate_names = [
-        f"{base}-static.zip",
-        f"{base}-gpl.zip",
-        f"{base}-lgpl.zip",
-        f"{base}-gpl.tar.xz",
-        f"{base}-lgpl.tar.xz",
+    suffixes = [
+        "-static.zip",
+        "-gpl.zip",
+        "-lgpl.zip",
+        "-gpl.tar.xz",
+        "-lgpl.tar.xz",
     ]
+    candidate_names = [f"{base}{suffix}" for base in base_names for suffix in suffixes]
     filename = candidate_names[0]
 
     # yt-dlp FFmpeg builds expose the latest assets under
@@ -49,15 +55,20 @@ def _macos_ffmpeg_download() -> Tuple[List[str], str]:
         with urllib.request.urlopen(api_url, timeout=10) as resp:  # type: ignore[attr-defined]
             data = json.load(resp)
         assets = data.get("assets") or []
+
+        def _is_arm_build(name: str) -> bool:
+            return any(token in name for token in ("arm64", "aarch64", "apple-silicon"))
+
         for asset in assets:
             name = asset.get("name", "")
             if not name.endswith((".zip", ".tar.xz")):
                 continue
             if "macos" not in name:
                 continue
-            if "arm64" in name and "arm" not in arch and arch != "aarch64":
+            is_asset_arm = _is_arm_build(name)
+            if is_asset_arm and not is_arm:
                 continue
-            if "arm64" not in name and ("arm" in arch or arch == "aarch64"):
+            if not is_asset_arm and is_arm:
                 continue
             if not any(flavor in name for flavor in ("static", "gpl", "lgpl")):
                 continue
