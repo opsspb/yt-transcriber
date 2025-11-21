@@ -16,7 +16,7 @@ def main(script_dir: Optional[str] = None, entrypoint_path: Optional[str] = None
     script_dir = script_dir or os.path.dirname(os.path.abspath(__file__))
     entrypoint_path = entrypoint_path or os.path.abspath(__file__)
 
-    # Configure logging to log.txt and mark run header
+    # Configure logging and mark run header
     set_log_file(script_dir)
     run_id = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     log_line(f"=== yt-diarizer run started at {run_id} ===")

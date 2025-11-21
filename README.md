@@ -23,7 +23,7 @@ A one-command CLI that downloads a YouTube video, transcribes it with WhisperX, 
    - install `whisperx` and `yt-dlp` inside the venv,
    - download best-quality audio via `yt-dlp` (falling back to your cookies or browser cookies if needed),
    - transcribe with WhisperX using the `large-v3` model and pyannote diarization on CPU,
-   - write progress and debug messages to `log.txt` in the project root.
+   - print progress and debug messages to the terminal.
 
 The temporary workspace is deleted automatically after the run. If the process is interrupted, you can safely delete any leftover `.yt_diarizer_work_*` directories.
 
@@ -34,7 +34,6 @@ The temporary workspace is deleted automatically after the run. If the process i
   [00:00:01.000 --> 00:00:03.500] SPEAKER_00: Hello world
   ```
 - The raw WhisperX JSON in a matching `diarized_transcript_YYYYMMDD_HHMMSS.json` file.
-- `log.txt` containing all console output for troubleshooting.
 
 ## Tips and troubleshooting
 
