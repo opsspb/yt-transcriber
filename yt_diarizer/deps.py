@@ -161,7 +161,7 @@ def _download_and_extract_archive(urls: List[str], archive_path: str, unpack_dir
 
 
 def _resolve_manual_ffmpeg() -> Tuple[str, str]:
-    """Return ffmpeg/ffprobe paths from YT_DIARIZER_FFMPEG/FFPROBE if set."""
+    """Return ffmpeg/ffprobe paths from env overrides if set."""
 
     def _validate(path: str, name: str) -> str:
         if not path:
@@ -174,28 +174,46 @@ def _resolve_manual_ffmpeg() -> Tuple[str, str]:
             )
         return path
 
-    ffmpeg_env = os.environ.get("YT_DIARIZER_FFMPEG")
-    ffprobe_env = os.environ.get("YT_DIARIZER_FFPROBE")
+    def _resolve(value: str, exe_name: str, name: str) -> str:
+        candidate = value
+        if os.path.isdir(value):
+            candidate = os.path.join(value, exe_name)
+        return _validate(candidate, name)
+
+    ffmpeg_env = os.environ.get("YT_DIARIZER_FFMPEG_PATH") or os.environ.get(
+        "YT_DIARIZER_FFMPEG"
+    )
+    ffprobe_env = os.environ.get("YT_DIARIZER_FFPROBE_PATH") or os.environ.get(
+        "YT_DIARIZER_FFPROBE"
+    )
 
     if not ffmpeg_env and not ffprobe_env:
         return "", ""
 
-    ffmpeg_path = _validate(ffmpeg_env, "YT_DIARIZER_FFMPEG") if ffmpeg_env else ""
+    exe_name = "ffmpeg.exe" if os.name == "nt" else "ffmpeg"
+    probe_name = "ffprobe.exe" if os.name == "nt" else "ffprobe"
+
+    ffmpeg_path = _resolve(ffmpeg_env, exe_name, "YT_DIARIZER_FFMPEG") if ffmpeg_env else ""
     if ffprobe_env:
-        ffprobe_path = _validate(ffprobe_env, "YT_DIARIZER_FFPROBE")
+        ffprobe_path = _resolve(ffprobe_env, probe_name, "YT_DIARIZER_FFPROBE")
     else:
         # Try locating ffprobe next to ffmpeg if only ffmpeg was provided.
         if not ffmpeg_path:
             raise DependencyError(
                 "YT_DIARIZER_FFPROBE must be set when YT_DIARIZER_FFMPEG is not provided."
             )
-        candidate = os.path.join(os.path.dirname(ffmpeg_path), "ffprobe")
+        candidate = os.path.join(os.path.dirname(ffmpeg_path), probe_name)
         if not os.path.isfile(candidate):
             raise DependencyError(
                 "YT_DIARIZER_FFMPEG was provided but ffprobe was not found next to it. "
-                "Set YT_DIARIZER_FFPROBE to the ffprobe binary."
+                "Set YT_DIARIZER_FFPROBE or point to a directory containing both binaries."
             )
         ffprobe_path = candidate
+
+    if os.path.dirname(ffmpeg_path) != os.path.dirname(ffprobe_path):
+        raise DependencyError(
+            "Environment overrides for ffmpeg and ffprobe must point to the same directory."
+        )
 
     return ffmpeg_path, ffprobe_path
 
@@ -222,7 +240,7 @@ def download_ffmpeg_if_missing(work_dir: str) -> str:
         os.environ["PATH"] = bin_dir + os.pathsep + os.environ.get("PATH", "")
         debug(
             "Using ffmpeg/ffprobe from environment overrides "
-            "YT_DIARIZER_FFMPEG/YT_DIARIZER_FFPROBE."
+            "YT_DIARIZER_FFMPEG(_PATH)/YT_DIARIZER_FFPROBE(_PATH)."
         )
         return manual_ffmpeg
 

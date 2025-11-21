@@ -1,3 +1,5 @@
+import os
+import tempfile
 import unittest
 from unittest import mock
 
@@ -24,6 +26,27 @@ class MacOsFfmpegDownloadTests(unittest.TestCase):
             any("macos-universal" in url for url in urls),
             "Universal macOS ffmpeg assets should be considered for Intel machines",
         )
+
+
+class ManualFfmpegOverrideTests(unittest.TestCase):
+    def test_directory_override_resolves_both_binaries(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            ffmpeg_path = os.path.join(tmpdir, "ffmpeg")
+            ffprobe_path = os.path.join(tmpdir, "ffprobe")
+
+            for path in (ffmpeg_path, ffprobe_path):
+                with open(path, "w", encoding="utf-8") as f:
+                    f.write("#!/bin/sh\n")
+
+            with mock.patch.dict(
+                os.environ,
+                {"YT_DIARIZER_FFMPEG_PATH": tmpdir},
+                clear=False,
+            ):
+                resolved_path = deps.download_ffmpeg_if_missing(tmpdir)
+
+                self.assertEqual(resolved_path, ffmpeg_path)
+                self.assertIn(tmpdir, os.environ["PATH"])
 
 
 if __name__ == "__main__":
