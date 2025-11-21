@@ -95,8 +95,6 @@ def save_final_outputs(
 def install_python_dependencies(venv_python: str) -> None:
     """
     Install required Python packages (whisperx, yt-dlp) into the venv.
-
-    All logs from pip are also mirrored into log.txt.
     """
     debug("Installing Python dependencies (whisperx, yt-dlp) inside venv ...")
 
