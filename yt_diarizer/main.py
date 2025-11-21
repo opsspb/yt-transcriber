@@ -8,7 +8,11 @@ import sys
 from typing import Optional
 
 from .constants import ENV_STAGE_VAR, ENV_URL_VAR, ENV_WORKDIR_VAR
-from .exceptions import DependencyError, PipelineError
+from .exceptions import (
+    DependencyError,
+    DependencyInstallationError,
+    PipelineError,
+)
 from .logging_utils import debug, log_line, set_log_file
 from .pipeline import run_pipeline_inside_venv, setup_and_run_in_venv
 
@@ -61,10 +65,16 @@ def main(script_dir: Optional[str] = None, entrypoint_path: Optional[str] = None
     os.makedirs(work_dir, exist_ok=True)
 
     exit_code = 0
+    cleanup_workspace = True
     try:
         if args and args.url:
             os.environ[ENV_URL_VAR] = args.url
         exit_code = setup_and_run_in_venv(script_dir, work_dir, entrypoint_path)
+    except DependencyInstallationError as exc:
+        log_line(f"ERROR: {exc}")
+        exit_code = 1
+        cleanup_workspace = False
+        log_line(f"Workspace preserved for inspection at {work_dir}")
     except (DependencyError, PipelineError) as exc:
         log_line(f"ERROR: {exc}")
         exit_code = 1
@@ -72,7 +82,7 @@ def main(script_dir: Optional[str] = None, entrypoint_path: Optional[str] = None
         log_line("Interrupted by user.")
         exit_code = 130
     finally:
-        if os.path.isdir(work_dir):
+        if cleanup_workspace and os.path.isdir(work_dir):
             debug(f"Cleaning up workspace {work_dir} ...")
             shutil.rmtree(work_dir, ignore_errors=True)
 
