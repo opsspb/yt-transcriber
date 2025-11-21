@@ -127,7 +127,7 @@ def save_final_outputs(
 
 
 def ensure_pkg_config_available() -> None:
-    """Ensure pkg-config is present on non-Windows platforms."""
+    """Ensure pkg-config is present when required for building PyAV."""
 
     # PyAV (pulled in by faster-whisper) relies on pkg-config to discover
     # system libraries when building wheels from source. Skip the check on
@@ -138,6 +138,17 @@ def ensure_pkg_config_available() -> None:
     if os.environ.get("YT_DIARIZER_ALLOW_MISSING_PKG_CONFIG"):
         debug(
             "Skipping pkg-config preflight because YT_DIARIZER_ALLOW_MISSING_PKG_CONFIG is set."
+        )
+        return
+
+    if sys.platform == "darwin":
+        if shutil.which("pkg-config"):
+            return
+
+        debug(
+            "pkg-config not found on macOS; skipping preflight. If pip later fails with "
+            "'pkg-config is required for building pyav', install pkg-config or set "
+            "YT_DIARIZER_ALLOW_MISSING_PKG_CONFIG=1 to bypass this warning."
         )
         return
 
