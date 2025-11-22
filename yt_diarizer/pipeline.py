@@ -298,7 +298,7 @@ def _ffmpeg_from_env() -> Optional[Dict[str, str]]:
         )
 
     debug(f"Using ffmpeg from environment override: {ffmpeg_path}")
-    return {"ffmpeg": ffmpeg_path, "ffprobe": ffprobe_path}
+    return {"ffmpeg": str(ffmpeg_path), "ffprobe": str(ffprobe_path)}
 
 
 def _ffmpeg_from_path() -> Optional[Dict[str, str]]:
@@ -400,42 +400,143 @@ def _make_executable(path: Path) -> None:
     path.chmod(mode | stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH)
 
 
-def _prepare_macos_ffmpeg(
-    extract_dir: Path, workspace_dir: Path, log: Callable[[str], None]
-) -> Dict[str, Optional[str]]:
-    ffmpeg_src, ffprobe_src = _find_ffmpeg_binaries(extract_dir, log)
+def _prepare_macos_ffmpeg(unpack_dir: Path, work_dir: Path, debug: bool = False) -> tuple[Path, Path]:
+    """
+    Prepare ffmpeg/ffprobe for macOS from the ColorsWind archive.
 
-    ffmpeg_dir = workspace_dir / "ffmpeg_macos" / "bin"
-    ffmpeg_dir.mkdir(parents=True, exist_ok=True)
+    We keep everything inside work_dir/ffmpeg_macos (no system-wide install) and
+    copy all .dylib files next to the binaries, then fix their load paths so they
+    no longer point to the original build machine path.
+    """
+    ffmpeg_macos_dir = work_dir / "ffmpeg_macos"
+    bin_dir = ffmpeg_macos_dir / "bin"
+    lib_dir = ffmpeg_macos_dir / "lib"
 
-    ffmpeg_dst = ffmpeg_dir / "ffmpeg"
-    log(f"[yt-diarizer] Copying ffmpeg to {ffmpeg_dst}")
-    shutil.copy2(ffmpeg_src, ffmpeg_dst)
-    _make_executable(ffmpeg_dst)
+    bin_dir.mkdir(parents=True, exist_ok=True)
+    lib_dir.mkdir(parents=True, exist_ok=True)
 
-    ffprobe_dst = ffmpeg_dir / "ffprobe"
-    if ffprobe_src is not None:
-        log(f"[yt-diarizer] Copying ffprobe to {ffprobe_dst}")
-        shutil.copy2(ffprobe_src, ffprobe_dst)
-        _make_executable(ffprobe_dst)
-    else:
-        log(
-            "[WARN] [yt-diarizer] ffprobe not found in downloaded archive; yt-dlp may still "
-            "fail and you may need a different build"
+    ffmpeg_candidates = _find_binary(unpack_dir, "ffmpeg")
+    ffprobe_candidates = _find_binary(unpack_dir, "ffprobe")
+
+    if not ffmpeg_candidates or not ffprobe_candidates:
+        raise RuntimeError(
+            "FFmpeg or ffprobe not found in the unpacked macOS archive. "
+            "Please install FFmpeg manually and set FFMPEG_PATH and FFPROBE_PATH."
         )
 
-    log(f"[yt-diarizer] Using downloaded ffmpeg at {ffmpeg_dst}")
-    return {
-        "ffmpeg": str(ffmpeg_dst),
-        "ffprobe": str(ffprobe_dst) if ffprobe_dst.exists() else None,
-    }
+    ffmpeg_path = bin_dir / "ffmpeg"
+    ffprobe_path = bin_dir / "ffprobe"
+
+    shutil.copy2(ffmpeg_candidates[0], ffmpeg_path)
+    shutil.copy2(ffprobe_candidates[0], ffprobe_path)
+
+    # Copy all shared libraries from the archive into our local lib directory.
+    # The prebuilt ColorsWind binaries are linked against the build machine path
+    # (/Users/runner/work/FFmpeg-macOS/FFmpeg-macOS/...), so we must keep the
+    # .dylibs next to the binaries and rewrite their load paths.
+    for dylib in Path(unpack_dir).rglob("*.dylib"):
+        dest = lib_dir / dylib.name
+        if not dest.exists():
+            shutil.copy2(dylib, dest)
+
+    ffmpeg_path.chmod(ffmpeg_path.stat().st_mode | stat.S_IEXEC)
+    ffprobe_path.chmod(ffprobe_path.stat().st_mode | stat.S_IEXEC)
+
+    # Fix dyld load commands so that ffmpeg/ffprobe and the libs use the local
+    # ffmpeg_macos/lib directory instead of the original build path.
+    _fix_macos_ffmpeg_install_names(ffmpeg_macos_dir, debug=debug)
+
+    if debug:
+        print(f"[yt-diarizer] ffmpeg copied to: {ffmpeg_path}")
+        print(f"[yt-diarizer] ffprobe copied to: {ffprobe_path}")
+
+    return ffmpeg_path, ffprobe_path
 
 
-def _find_binary(unpack_dir: str, name: str) -> str:
+def _fix_macos_ffmpeg_install_names(ffmpeg_macos_dir: Path, debug: bool = False) -> None:
+    """
+    Adjust shared library load paths for the locally copied ffmpeg/ffprobe
+    binaries on macOS.
+
+    This avoids runtime errors like:
+      Library not loaded: /Users/runner/work/FFmpeg-macOS/FFmpeg-macOS/libavdevice.59.dylib
+    by rewriting the load commands to use the local ffmpeg_macos/lib directory.
+    """
+    lib_dir = ffmpeg_macos_dir / "lib"
+    bin_dir = ffmpeg_macos_dir / "bin"
+
+    if not lib_dir.is_dir() or not bin_dir.is_dir():
+        return
+
+    # Map library file name -> absolute path inside ffmpeg_macos/lib
+    libs = {p.name: p for p in lib_dir.glob("*.dylib")}
+    if not libs:
+        return
+
+    try:
+        import subprocess  # noqa: F401
+    except Exception:
+        # If subprocess/otool/install_name_tool are not available, just skip.
+        return
+
+    def _run(cmd: list[str]) -> None:
+        if debug:
+            print(f"[yt-diarizer] Running: {' '.join(cmd)}")
+        try:
+            subprocess.run(cmd, check=True)
+        except Exception as exc:  # best-effort only
+            if debug:
+                print(f"[yt-diarizer] install_name_tool failed for {cmd}: {exc}")
+
+    def _patch_binary(binary: Path, use_executable_path: bool) -> None:
+        """Rewrite load commands for one Mach-O binary (ffmpeg, ffprobe or .dylib)."""
+        if not binary.is_file():
+            return
+
+        try:
+            output = subprocess.check_output(["otool", "-L", str(binary)], text=True)
+        except Exception as exc:
+            if debug:
+                print(f"[yt-diarizer] otool -L failed for {binary}: {exc}")
+            return
+
+        lines = output.splitlines()[1:]
+        for line in lines:
+            if not line.strip():
+                continue
+
+            dep = line.strip().split(" ", 1)[0]
+            dep_name = os.path.basename(dep)
+
+            # Only touch dependencies that correspond to the libs we just copied.
+            if dep_name not in libs:
+                continue
+
+            target_lib = libs[dep_name]
+            rel = os.path.relpath(target_lib, start=binary.parent)
+            prefix = "@executable_path" if use_executable_path else "@loader_path"
+            new_dep = f"{prefix}/{rel}"
+
+            if new_dep == dep:
+                continue
+
+            _run(["install_name_tool", "-change", dep, new_dep, str(binary)])
+
+    # 1) ffmpeg и ffprobe — пусть смотрят в ../lib относительно своего bin-каталога
+    for name in ("ffmpeg", "ffprobe"):
+        _patch_binary(bin_dir / name, use_executable_path=True)
+
+    # 2) сами .dylib — пусть ссылаются друг на друга через @loader_path
+    for lib in libs.values():
+        _patch_binary(lib, use_executable_path=False)
+
+
+def _find_binary(unpack_dir: str | Path, name: str) -> List[Path]:
+    matches: List[Path] = []
     for root, _, files in os.walk(unpack_dir):
         if name in files:
-            return os.path.join(root, name)
-    raise RuntimeError(f"Downloaded ffmpeg archive missing '{name}' binary")
+            matches.append(Path(root) / name)
+    return matches
 
 
 def download_ffmpeg_for_macos(work_dir: str) -> Dict[str, Optional[str]]:
@@ -454,7 +555,11 @@ def download_ffmpeg_for_macos(work_dir: str) -> Dict[str, Optional[str]]:
 
     _download_and_extract_archive(colorswind_urls, archive_path, unpack_dir)
 
-    return _prepare_macos_ffmpeg(Path(unpack_dir), Path(work_dir), debug)
+    ffmpeg_path, ffprobe_path = _prepare_macos_ffmpeg(
+        Path(unpack_dir), Path(work_dir), debug=bool(os.environ.get("YT_DIARIZER_DEBUG"))
+    )
+
+    return {"ffmpeg": str(ffmpeg_path), "ffprobe": str(ffprobe_path)}
 
 
 def _build_ffmpeg_urls_for_other_platforms() -> List[str]:
@@ -493,8 +598,14 @@ def download_ffmpeg_for_other_platforms(work_dir: str) -> Dict[str, str]:
 
     ffmpeg_name = "ffmpeg.exe" if os.name == "nt" else "ffmpeg"
     ffprobe_name = "ffprobe.exe" if os.name == "nt" else "ffprobe"
-    ffmpeg_path = _find_binary(unpack_dir, ffmpeg_name)
-    ffprobe_path = _find_binary(unpack_dir, ffprobe_name)
+    ffmpeg_candidates = _find_binary(unpack_dir, ffmpeg_name)
+    ffprobe_candidates = _find_binary(unpack_dir, ffprobe_name)
+
+    if not ffmpeg_candidates or not ffprobe_candidates:
+        raise RuntimeError("Downloaded ffmpeg archive missing ffmpeg/ffprobe binary")
+
+    ffmpeg_path = ffmpeg_candidates[0]
+    ffprobe_path = ffprobe_candidates[0]
 
     for binary_path in (ffmpeg_path, ffprobe_path):
         try:
@@ -502,7 +613,7 @@ def download_ffmpeg_for_other_platforms(work_dir: str) -> Dict[str, str]:
         except Exception:
             pass
 
-    return {"ffmpeg": ffmpeg_path, "ffprobe": ffprobe_path}
+    return {"ffmpeg": str(ffmpeg_path), "ffprobe": str(ffprobe_path)}
 
 
 def ensure_ffmpeg(work_dir: str) -> Dict[str, Optional[str]]:
