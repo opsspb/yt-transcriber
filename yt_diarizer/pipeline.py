@@ -178,10 +178,9 @@ def install_python_dependencies(venv_python: str) -> None:
         # trigger AttributeError during import, so we pin to a compatible stack.
         "torch": "2.3.1",
         "torchaudio": "2.3.1",
-        # Use a faster-whisper release that depends on PyAV <13. PyAV 12.3.0
-        # ships a CPython 3.9 macOS arm64 wheel, avoiding pkg-config on
-        # Apple Silicon while remaining compatible with the WhisperX stack.
-        "faster-whisper": "1.0.3",
+        # faster-whisper is not pinned here: WhisperX declares
+        # faster-whisper>=1.1.1 in its pyproject and should select an appropriate
+        # version for the platform.
         "av": "12.3.0",
         "yt-dlp": "2024.11.18",
     }
@@ -197,8 +196,8 @@ def install_python_dependencies(venv_python: str) -> None:
             if "pkg-config is required for building pyav" in joined_lower:
                 extra_hint = (
                     "\nThis failure indicates PyAV is being built from source and pkg-config "
-                    "is unavailable. Adjust the pinned faster-whisper/av versions "
-                    "so a PyAV wheel is selected instead of compiling."
+                    "is unavailable. Adjust the pinned av version so a PyAV wheel "
+                    "is selected instead of compiling."
                 )
 
             raise DependencyInstallationError(
@@ -239,7 +238,6 @@ def install_python_dependencies(venv_python: str) -> None:
                 f"numpy=={pinned_versions['numpy']}\n"
                 f"torch=={pinned_versions['torch']}\n"
                 f"torchaudio=={pinned_versions['torchaudio']}\n"
-                f"faster-whisper=={pinned_versions['faster-whisper']}\n"
                 f"av=={pinned_versions['av']}\n"
                 f"yt-dlp=={pinned_versions['yt-dlp']}\n"
             )
