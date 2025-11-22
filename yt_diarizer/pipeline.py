@@ -147,8 +147,8 @@ def ensure_pkg_config_available() -> None:
 
         debug(
             "pkg-config not found on macOS; skipping preflight. If pip later fails with "
-            "'pkg-config is required for building pyav', install pkg-config or set "
-            "YT_DIARIZER_ALLOW_MISSING_PKG_CONFIG=1 to bypass this warning."
+            "'pkg-config is required for building pyav', adjust pinned dependencies to "
+            "use a PyAV wheel."
         )
         return
 
@@ -178,11 +178,11 @@ def install_python_dependencies(venv_python: str) -> None:
         # trigger AttributeError during import, so we pin to a compatible stack.
         "torch": "2.3.1",
         "torchaudio": "2.3.1",
-        # faster-whisper 1.x changed TranscriptionOptions to require new
-        # arguments that WhisperX 3.1.1 does not pass. Pin to the last
-        # compatible 0.x release to prevent runtime failures during
-        # diarization.
-        "faster-whisper": "0.10.1",
+        # Use a faster-whisper release that depends on PyAV 11.x, which ships
+        # prebuilt wheels for macOS arm64 (Python 3.9) and avoids pkg-config.
+        # WhisperX 3.1.1 remains compatible with this stack.
+        "faster-whisper": "1.0.3",
+        "av": "11.0.0",
         "whisperx": "3.1.1",
         "yt-dlp": "2024.11.18",
     }
@@ -197,9 +197,9 @@ def install_python_dependencies(venv_python: str) -> None:
             joined_lower = "\n".join(snippet_lines).lower()
             if "pkg-config is required for building pyav" in joined_lower:
                 extra_hint = (
-                    "\nThis failure indicates pkg-config is missing. Install pkg-config "
-                    "(e.g., `brew install pkg-config` on macOS or "
-                    "`sudo apt-get install pkg-config` on Debian/Ubuntu) and rerun."
+                    "\nThis failure indicates PyAV is being built from source and pkg-config "
+                    "is unavailable. Adjust the pinned faster-whisper/av/whisperx "
+                    "versions so a PyAV wheel is selected instead of compiling."
                 )
 
             raise DependencyInstallationError(
@@ -241,6 +241,9 @@ def install_python_dependencies(venv_python: str) -> None:
                 f"torch=={pinned_versions['torch']}\n"
                 f"torchaudio=={pinned_versions['torchaudio']}\n"
                 f"faster-whisper=={pinned_versions['faster-whisper']}\n"
+                f"av=={pinned_versions['av']}\n"
+                f"whisperx=={pinned_versions['whisperx']}\n"
+                f"yt-dlp=={pinned_versions['yt-dlp']}\n"
             )
 
         _run(
