@@ -8,7 +8,6 @@ import stat
 import subprocess
 import sys
 import tarfile
-import tempfile
 import zipfile
 from pathlib import Path
 from typing import Callable, Dict, List, Optional, Tuple
@@ -166,101 +165,58 @@ def ensure_pkg_config_available() -> None:
 def install_python_dependencies(venv_python: str) -> None:
     """
     Install required Python packages (whisperx stack + yt-dlp) into the venv.
+    We pin only yt-dlp and av; WhisperX and its own dependencies are allowed
+    to resolve their versions to avoid conflicts (in particular around NumPy).
     """
-    debug("Installing Python dependencies (pinned WhisperX stack) inside venv ...")
+    debug("Installing Python dependencies (WhisperX stack) inside venv ...")
 
+    # On macOS, PyAV may require pkg-config to be present; we keep this preflight.
     ensure_pkg_config_available()
 
     pinned_versions = {
-        "numpy": "1.26.4",
-        # Torch 2.3+ exposes torch.utils._pytree.register_pytree_node required by
-        # transformers >=4.57 used by WhisperX. Older torch builds (e.g., 2.1.x)
-        # trigger AttributeError during import, so we pin to a compatible stack.
-        "torch": "2.3.1",
-        "torchaudio": "2.3.1",
-        # faster-whisper is not pinned here: WhisperX declares
-        # faster-whisper>=1.1.1 in its pyproject and should select an appropriate
-        # version for the platform.
+        # Keep these pinned for reproducibility; the rest is resolved by WhisperX.
         "av": "12.3.0",
         "yt-dlp": "2024.11.18",
     }
 
     def _run(cmd: List[str], description: str) -> None:
-        rc, lines = run_logged_subprocess(cmd, description)
+        rc, log_lines = run_logged_subprocess(cmd, description)
         if rc != 0:
-            snippet_lines = [ln for ln in lines if ln]
-            snippet = "\n".join(snippet_lines[-50:])
-
-            extra_hint = ""
-            joined_lower = "\n".join(snippet_lines).lower()
-            if "pkg-config is required for building pyav" in joined_lower:
-                extra_hint = (
-                    "\nThis failure indicates PyAV is being built from source and pkg-config "
-                    "is unavailable. Adjust the pinned av version so a PyAV wheel "
-                    "is selected instead of compiling."
-                )
-
-            raise DependencyInstallationError(
-                f"{description} failed with exit code {rc}.{extra_hint}\n"
-                f"Last output snippet:\n{snippet}"
+            last_snippet = "\n".join(log_lines[-20:])
+            raise RuntimeError(
+                f"ERROR: {description} failed with exit code {rc}.\n"
+                f"Last output snippet:\n{last_snippet}"
             )
 
-    _run(
-        [venv_python, "-m", "pip", "install", "--upgrade", "pip"],
-        "pip upgrade",
-    )
-
-    _run(
-        [venv_python, "-m", "pip", "install", f"numpy=={pinned_versions['numpy']}"],
-        "install NumPy pinned below 2.x for PyTorch binary compatibility",
-    )
-
-    torch_index = "https://download.pytorch.org/whl/cpu"
+    # Upgrade pip first to get a modern dependency resolver.
     _run(
         [
             venv_python,
             "-m",
             "pip",
             "install",
-            f"torch=={pinned_versions['torch']}",
-            f"torchaudio=={pinned_versions['torchaudio']}",
-            "--index-url",
-            torch_index,
+            "--upgrade",
+            "pip",
         ],
-        "install PyTorch CPU wheels",
+        "pip upgrade",
     )
 
-    constraint_path: Optional[str] = None
-    try:
-        with tempfile.NamedTemporaryFile("w", delete=False) as tmp:
-            constraint_path = tmp.name
-            tmp.write(
-                f"numpy=={pinned_versions['numpy']}\n"
-                f"torch=={pinned_versions['torch']}\n"
-                f"torchaudio=={pinned_versions['torchaudio']}\n"
-                f"av=={pinned_versions['av']}\n"
-                f"yt-dlp=={pinned_versions['yt-dlp']}\n"
-            )
-
-        _run(
-            [
-                venv_python,
-                "-m",
-                "pip",
-                "install",
-                "git+https://github.com/m-bain/whisperX.git",
-                f"yt-dlp=={pinned_versions['yt-dlp']}",
-                "--constraint",
-                constraint_path,
-            ],
-            "install WhisperX (from GitHub) and yt-dlp",
-        )
-    finally:
-        if constraint_path and os.path.exists(constraint_path):
-            try:
-                os.remove(constraint_path)
-            except OSError:
-                pass
+    # Install WhisperX from GitHub together with pinned yt-dlp and av.
+    # NumPy, ctranslate2, faster-whisper etc. are resolved automatically
+    # according to WhisperX's pyproject metadata, so we don't manually
+    # constrain them and avoid version conflicts.
+    _run(
+        [
+            venv_python,
+            "-m",
+            "pip",
+            "install",
+            "git+https://github.com/m-bain/whisperX.git",
+            f"yt-dlp=={pinned_versions['yt-dlp']}",
+            f"av=={pinned_versions['av']}",
+        ],
+        "install WhisperX (from GitHub), yt-dlp and av",
+    )
 
 
 # ---------------------------------------------------------------------------
