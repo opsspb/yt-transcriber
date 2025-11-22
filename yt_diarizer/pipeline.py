@@ -10,7 +10,7 @@ import sys
 import tarfile
 import zipfile
 from pathlib import Path
-from typing import Callable, Dict, List, Optional, Tuple
+from typing import Callable, Dict, List, Optional, Tuple, Union
 
 from .constants import ENV_STAGE_VAR, ENV_URL_VAR, ENV_WORKDIR_VAR, TOKEN_FILENAME
 from .deps import ensure_dependencies
@@ -531,7 +531,7 @@ def _fix_macos_ffmpeg_install_names(ffmpeg_macos_dir: Path, debug: bool = False)
         _patch_binary(lib, use_executable_path=False)
 
 
-def _find_binary(unpack_dir: str | Path, name: str) -> List[Path]:
+def _find_binary(unpack_dir: Union[str, Path], name: str) -> List[Path]:
     matches: List[Path] = []
     for root, _, files in os.walk(unpack_dir):
         if name in files:
