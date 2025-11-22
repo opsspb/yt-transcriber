@@ -178,11 +178,11 @@ def install_python_dependencies(venv_python: str) -> None:
         # trigger AttributeError during import, so we pin to a compatible stack.
         "torch": "2.3.1",
         "torchaudio": "2.3.1",
-        # Use a faster-whisper release that depends on PyAV 11.x, which ships
-        # prebuilt wheels for macOS arm64 (Python 3.9) and avoids pkg-config.
-        # WhisperX 3.1.1 remains compatible with this stack.
+        # Use a faster-whisper release that depends on PyAV <13. PyAV 12.3.0
+        # ships a CPython 3.9 macOS arm64 wheel, avoiding pkg-config on
+        # Apple Silicon while remaining compatible with WhisperX 3.1.1.
         "faster-whisper": "1.0.3",
-        "av": "11.0.0",
+        "av": "12.3.0",
         "whisperx": "3.1.1",
         "yt-dlp": "2024.11.18",
     }
