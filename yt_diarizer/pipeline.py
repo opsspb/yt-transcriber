@@ -180,10 +180,9 @@ def install_python_dependencies(venv_python: str) -> None:
         "torchaudio": "2.3.1",
         # Use a faster-whisper release that depends on PyAV <13. PyAV 12.3.0
         # ships a CPython 3.9 macOS arm64 wheel, avoiding pkg-config on
-        # Apple Silicon while remaining compatible with WhisperX 3.1.1.
+        # Apple Silicon while remaining compatible with the WhisperX stack.
         "faster-whisper": "1.0.3",
         "av": "12.3.0",
-        "whisperx": "3.1.1",
         "yt-dlp": "2024.11.18",
     }
 
@@ -198,8 +197,8 @@ def install_python_dependencies(venv_python: str) -> None:
             if "pkg-config is required for building pyav" in joined_lower:
                 extra_hint = (
                     "\nThis failure indicates PyAV is being built from source and pkg-config "
-                    "is unavailable. Adjust the pinned faster-whisper/av/whisperx "
-                    "versions so a PyAV wheel is selected instead of compiling."
+                    "is unavailable. Adjust the pinned faster-whisper/av versions "
+                    "so a PyAV wheel is selected instead of compiling."
                 )
 
             raise DependencyInstallationError(
@@ -242,7 +241,6 @@ def install_python_dependencies(venv_python: str) -> None:
                 f"torchaudio=={pinned_versions['torchaudio']}\n"
                 f"faster-whisper=={pinned_versions['faster-whisper']}\n"
                 f"av=={pinned_versions['av']}\n"
-                f"whisperx=={pinned_versions['whisperx']}\n"
                 f"yt-dlp=={pinned_versions['yt-dlp']}\n"
             )
 
@@ -252,12 +250,12 @@ def install_python_dependencies(venv_python: str) -> None:
                 "-m",
                 "pip",
                 "install",
-                f"whisperx=={pinned_versions['whisperx']}",
+                "git+https://github.com/m-bain/whisperX.git",
                 f"yt-dlp=={pinned_versions['yt-dlp']}",
                 "--constraint",
                 constraint_path,
             ],
-            "install WhisperX and yt-dlp",
+            "install WhisperX (from GitHub) and yt-dlp",
         )
     finally:
         if constraint_path and os.path.exists(constraint_path):
