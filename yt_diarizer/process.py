@@ -8,7 +8,10 @@ from .logging_utils import debug, log_line
 
 
 def run_logged_subprocess(
-    cmd: List[str], description: str, cwd: Optional[str] = None
+    cmd: List[str],
+    description: str,
+    cwd: Optional[str] = None,
+    env: Optional[dict] = None,
 ) -> Tuple[int, List[str]]:
     """
     Run a subprocess, streaming combined stdout/stderr to console and log file.
@@ -20,6 +23,7 @@ def run_logged_subprocess(
     process = subprocess.Popen(
         cmd,
         cwd=cwd,
+        env=env,
         stdout=subprocess.PIPE,
         stderr=subprocess.STDOUT,
         bufsize=0,

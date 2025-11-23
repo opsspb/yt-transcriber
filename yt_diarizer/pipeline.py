@@ -231,8 +231,15 @@ def install_python_dependencies(venv_python: str, mps_convert: bool = False) -> 
         "yt-dlp": "2024.11.18",
     }
 
+    venv_dir = os.path.dirname(os.path.dirname(venv_python))
+    pip_env = os.environ.copy()
+    pip_env.setdefault("VIRTUAL_ENV", venv_dir)
+    pip_env["PYTHONNOUSERSITE"] = "1"
+    pip_env["PIP_DISABLE_PIP_VERSION_CHECK"] = "1"
+    pip_env["PIP_NO_CACHE_DIR"] = "1"
+
     def _run(cmd: List[str], description: str) -> None:
-        rc, log_lines = run_logged_subprocess(cmd, description)
+        rc, log_lines = run_logged_subprocess(cmd, description, env=pip_env)
         if rc != 0:
             last_snippet = "\n".join(log_lines[-20:])
             raise DependencyError(
