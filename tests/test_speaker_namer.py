@@ -47,3 +47,47 @@ def test_replace_speakers_in_json_updates_segments_only():
     assert updated["segments"][0]["speaker"] == "HOST"
     assert updated["segments"][1]["speaker"] == "GUEST"
     assert updated["other"] == "keep"
+
+
+def test_collect_scored_segments_prioritizes_confident_samples():
+    data = {
+        "segments": [
+            {
+                "speaker": "SPEAKER_01",
+                "start": 5,
+                "end": 6,
+                "text": "High confidence",
+                "speaker_probs": {"SPEAKER_01": 0.9},
+            },
+            {
+                "speaker": "SPEAKER_01",
+                "start": 10,
+                "end": 12,
+                "text": "Low confidence",
+                "speaker_prob": 0.3,
+            },
+            {
+                "speaker": "SPEAKER_02",
+                "start": 1,
+                "end": 2,
+                "text": "Other speaker",
+                "speaker_prob": 0.95,
+            },
+        ]
+    }
+
+    scored = sn.collect_scored_segments_by_speaker(data)
+    assert list(scored.keys()) == ["SPEAKER_01", "SPEAKER_02"]
+    assert len(scored["SPEAKER_01"]) == 2
+
+    previews = sn.build_preview_lines("SPEAKER_01", [], scored["SPEAKER_01"], limit=1)
+    assert len(previews) == 1
+    assert previews[0].startswith("[00:00:05.000")
+    assert "High confidence" in previews[0]
+
+
+def test_build_preview_lines_falls_back_to_transcript_lines():
+    previews = sn.build_preview_lines(
+        "SPEAKER_03", ["line1", "line2", "line3"], [], limit=2
+    )
+    assert previews == ["line1", "line2"]
