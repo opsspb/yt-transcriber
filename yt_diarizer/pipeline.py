@@ -189,6 +189,13 @@ def ensure_pkg_config_available() -> None:
     if shutil.which("pkg-config"):
         return
 
+    if sys.platform == "darwin":
+        debug(
+            "pkg-config not found on macOS; continuing without it and allowing pip to fail "
+            "later if PyAV requires pkg-config in this environment."
+        )
+        return
+
     raise DependencyInstallationError(
         "pkg-config not found in PATH. Install pkg-config (e.g., `brew install "
         "pkg-config` on macOS or `sudo apt-get install pkg-config` on "
