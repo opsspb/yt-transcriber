@@ -589,11 +589,11 @@ def _fix_macos_ffmpeg_install_names(ffmpeg_macos_dir: Path, debug: bool = False)
 
             _run(["install_name_tool", "-change", dep, new_dep, str(binary)])
 
-    # 1) ffmpeg и ffprobe — пусть смотрят в ../lib относительно своего bin-каталога
+    # 1) Point ffmpeg and ffprobe to ../lib relative to their bin directory
     for name in ("ffmpeg", "ffprobe"):
         _patch_binary(bin_dir / name, use_executable_path=True)
 
-    # 2) сами .dylib — пусть ссылаются друг на друга через @loader_path
+    # 2) Ensure the .dylib files reference each other via @loader_path
     for lib in libs.values():
         _patch_binary(lib, use_executable_path=False)
 
