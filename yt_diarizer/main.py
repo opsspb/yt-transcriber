@@ -7,7 +7,12 @@ import shutil
 import sys
 from typing import Optional
 
-from .constants import ENV_STAGE_VAR, ENV_URL_VAR, ENV_WORKDIR_VAR
+from .constants import (
+    ENV_MPS_CONVERT_VAR,
+    ENV_STAGE_VAR,
+    ENV_URL_VAR,
+    ENV_WORKDIR_VAR,
+)
 from .exceptions import (
     DependencyError,
     DependencyInstallationError,
@@ -37,6 +42,11 @@ def main(script_dir: Optional[str] = None, entrypoint_path: Optional[str] = None
         dest="cookies",
         help="Path to cookies.txt for yt-dlp (optional override for YT_DIARIZER_COOKIES)",
     )
+    parser.add_argument(
+        "--mps-convert",
+        action="store_true",
+        help="Use Whisper transcription on Apple Silicon (MPS) without diarization",
+    )
 
     # Configure logging and mark run header
     set_log_file(script_dir)
@@ -49,6 +59,8 @@ def main(script_dir: Optional[str] = None, entrypoint_path: Optional[str] = None
         args = parser.parse_args()
         if args.cookies:
             os.environ.setdefault("YT_DIARIZER_COOKIES", args.cookies)
+        if args.mps_convert:
+            os.environ.setdefault(ENV_MPS_CONVERT_VAR, "1")
 
         ensure_pkg_config_available()
 
@@ -75,7 +87,12 @@ def main(script_dir: Optional[str] = None, entrypoint_path: Optional[str] = None
     try:
         if args and args.url:
             os.environ[ENV_URL_VAR] = args.url
-        exit_code = setup_and_run_in_venv(script_dir, work_dir, entrypoint_path)
+        exit_code = setup_and_run_in_venv(
+            script_dir,
+            work_dir,
+            entrypoint_path,
+            mps_convert=bool(os.environ.get(ENV_MPS_CONVERT_VAR)),
+        )
     except DependencyInstallationError as exc:
         log_line(f"ERROR: {exc}")
         exit_code = 1

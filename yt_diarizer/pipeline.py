@@ -13,8 +13,14 @@ from pathlib import Path
 from typing import Callable, Dict, List, Optional, Tuple, Union
 from urllib.parse import parse_qs, urlparse
 
-from .constants import ENV_STAGE_VAR, ENV_URL_VAR, ENV_WORKDIR_VAR, TOKEN_FILENAME
-from .deps import ensure_dependencies
+from .constants import (
+    ENV_MPS_CONVERT_VAR,
+    ENV_STAGE_VAR,
+    ENV_URL_VAR,
+    ENV_WORKDIR_VAR,
+    TOKEN_FILENAME,
+)
+from .deps import ensure_dependencies, find_executable
 from .downloader import download_best_audio
 from .exceptions import (
     DependencyError,
@@ -202,13 +208,16 @@ def ensure_pkg_config_available() -> None:
     )
 
 
-def install_python_dependencies(venv_python: str) -> None:
+def install_python_dependencies(venv_python: str, mps_convert: bool = False) -> None:
     """
-    Install required Python packages (WhisperX stack + yt-dlp) into the venv.
-    Key dependencies are pinned to versions that match the tested WhisperX
-    stack and avoid NumPy 2.x incompatibilities.
+    Install required Python packages into the venv.
+
+    When *mps_convert* is True we install a Whisper-only stack suitable for
+    Apple Silicon (MPS) transcription without diarization. Otherwise we install
+    the default WhisperX stack.
     """
-    debug("Installing Python dependencies (WhisperX stack) inside venv ...")
+    stack_label = "Whisper (MPS)" if mps_convert else "WhisperX"
+    debug(f"Installing Python dependencies ({stack_label} stack) inside venv ...")
 
     # On macOS, PyAV may require pkg-config to be present; we keep this preflight.
     ensure_pkg_config_available()
@@ -218,6 +227,7 @@ def install_python_dependencies(venv_python: str) -> None:
         "torch": "2.3.1",
         "torchaudio": "2.3.1",
         "whisperx": "3.1.1",
+        "whisper": "20240930",
         "yt-dlp": "2024.11.18",
     }
 
@@ -255,35 +265,45 @@ def install_python_dependencies(venv_python: str) -> None:
         "install numpy below 2.x for WhisperX dependencies",
     )
 
-    # Install PyTorch CPU wheels explicitly.
-    _run(
-        [
-            venv_python,
-            "-m",
-            "pip",
-            "install",
-            f"torch=={pinned_versions['torch']}",
-            f"torchaudio=={pinned_versions['torchaudio']}",
-            "--index-url",
-            "https://download.pytorch.org/whl/cpu",
-        ],
-        "install PyTorch CPU wheels",
-    )
+    torch_cmd = [
+        venv_python,
+        "-m",
+        "pip",
+        "install",
+        f"torch=={pinned_versions['torch']}",
+        f"torchaudio=={pinned_versions['torchaudio']}",
+    ]
+    if not mps_convert:
+        torch_cmd.extend(["--index-url", "https://download.pytorch.org/whl/cpu"])
 
-    # Install WhisperX and yt-dlp with an explicit constraints file.
-    _run(
-        [
-            venv_python,
-            "-m",
-            "pip",
-            "install",
-            f"whisperx=={pinned_versions['whisperx']}",
-            f"yt-dlp=={pinned_versions['yt-dlp']}",
-            "--constraint",
-            "https://raw.githubusercontent.com/m-bain/whisperX/v3.1.1/requirements.txt",
-        ],
-        "install WhisperX, yt-dlp and supporting dependencies",
-    )
+    _run(torch_cmd, "install PyTorch wheels")
+
+    if mps_convert:
+        _run(
+            [
+                venv_python,
+                "-m",
+                "pip",
+                "install",
+                f"openai-whisper=={pinned_versions['whisper']}",
+                f"yt-dlp=={pinned_versions['yt-dlp']}",
+            ],
+            "install Whisper (MPS) transcription dependencies",
+        )
+    else:
+        _run(
+            [
+                venv_python,
+                "-m",
+                "pip",
+                "install",
+                f"whisperx=={pinned_versions['whisperx']}",
+                f"yt-dlp=={pinned_versions['yt-dlp']}",
+                "--constraint",
+                "https://raw.githubusercontent.com/m-bain/whisperX/v3.1.1/requirements.txt",
+            ],
+            "install WhisperX, yt-dlp and supporting dependencies",
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -753,19 +773,25 @@ def run_pipeline_inside_venv(script_dir: str, work_dir: str) -> None:
 
     debug(f"Workspace inside venv: {work_dir}")
 
-    _configure_cache_dirs(work_dir)
+    mps_convert = os.environ.get(ENV_MPS_CONVERT_VAR) == "1"
 
-    hf_token = load_hf_token(script_dir)
-    os.environ.setdefault("HF_TOKEN", hf_token)
+    _configure_cache_dirs(work_dir)
 
     ffmpeg_paths = ensure_ffmpeg(work_dir)
     ffmpeg_location = ffmpeg_paths["location_dir"]
+
+    url = _resolve_youtube_url()
+    if mps_convert:
+        _run_mps_transcription(script_dir, work_dir, url, ffmpeg_location)
+        return
+
+    hf_token = load_hf_token(script_dir)
+    os.environ.setdefault("HF_TOKEN", hf_token)
 
     deps = ensure_dependencies()
     yt_downloader = deps["yt_downloader"]
     whisperx_bin = deps["whisperx"]
 
-    url = _resolve_youtube_url()
     audio_path = download_best_audio(
         yt_downloader, url, work_dir, script_dir, ffmpeg_location
     )
@@ -782,7 +808,32 @@ def run_pipeline_inside_venv(script_dir: str, work_dir: str) -> None:
     log_line(f"Raw WhisperX output (JSON): {outputs['json']}")
 
 
-def setup_and_run_in_venv(script_dir: str, work_dir: str, entrypoint_path: str) -> int:
+def _run_mps_transcription(
+    script_dir: str, work_dir: str, url: str, ffmpeg_location: Optional[str]
+) -> None:
+    """Run the Whisper-only transcription path optimized for Apple Silicon."""
+
+    from .mps_convert import transcribe_audio_with_mps_whisper
+
+    yt_downloader = find_executable(["yt-dlp", "yt_dlp"])
+    audio_path = download_best_audio(
+        yt_downloader, url, work_dir, script_dir, ffmpeg_location
+    )
+    json_result_path, transcript_lines = transcribe_audio_with_mps_whisper(
+        audio_path, work_dir
+    )
+
+    outputs = save_final_outputs(transcript_lines, json_result_path, script_dir, url)
+
+    log_line("")
+    log_line("=== Done (Whisper MPS) ===")
+    log_line(f"Transcript (TXT): {outputs['txt']}")
+    log_line(f"Raw Whisper output (JSON): {outputs['json']}")
+
+
+def setup_and_run_in_venv(
+    script_dir: str, work_dir: str, entrypoint_path: str, mps_convert: bool = False
+) -> int:
     """
     Outer stage: create temporary venv in work_dir, install deps, then re-run this
     script inside that venv. Finally, return the exit code from the inner run.
@@ -812,7 +863,7 @@ def setup_and_run_in_venv(script_dir: str, work_dir: str, entrypoint_path: str) 
     if not os.path.isfile(venv_python):
         raise PipelineError(f"Could not locate venv python at {venv_python}")
 
-    install_python_dependencies(venv_python)
+    install_python_dependencies(venv_python, mps_convert=mps_convert)
 
     env = os.environ.copy()
     env[ENV_STAGE_VAR] = "inner"
