@@ -41,22 +41,26 @@ def transcribe_audio_with_mps_whisper(audio_path: str, work_dir: str) -> Tuple[s
 
     _ensure_mps_available()
 
-    # Explicitly disable PyTorch CPU fallback so that we either execute on MPS
-    # or fail fast with a clear error for the user.
-    os.environ["PYTORCH_ENABLE_MPS_FALLBACK"] = "0"
-
     device = "mps"
     debug("Running Whisper transcription with large-v3 model on MPS (no diarization)...")
 
+    def _run_whisper(target_device: str) -> dict:
+        model = whisper.load_model("large-v3", device=target_device)
+        return model.transcribe(audio_path, verbose=True)
+
     try:
-        model = whisper.load_model("large-v3", device=device)
-        result = model.transcribe(audio_path, verbose=True)
-    except NotImplementedError as exc:
-        raise PipelineError(
-            "Whisper failed to execute on MPS due to an unsupported operation. "
-            "Update PyTorch/Whisper to a build with full MPS support or rerun "
-            "with a compatible GPU."
-        ) from exc
+        result = _run_whisper(device)
+    except (NotImplementedError, RuntimeError) as exc:
+        debug(f"Whisper on MPS failed: {exc!r}")
+        unsupported_runtime = isinstance(exc, RuntimeError) and "unsupported" in str(exc).lower()
+
+        if isinstance(exc, NotImplementedError) or unsupported_runtime:
+            raise PipelineError(
+                "Whisper failed to execute on MPS due to an unsupported operation. "
+                "Update PyTorch/Whisper to a build with full MPS support or rerun "
+                "with a compatible GPU."
+            ) from exc
+        raise
 
     json_path = os.path.join(work_dir, f"{Path(audio_path).stem}_whisper.json")
     with open(json_path, "w", encoding="utf-8") as f:
