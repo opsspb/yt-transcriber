@@ -2,6 +2,7 @@
 
 import argparse
 import json
+import math
 import os
 import re
 import unicodedata
@@ -90,13 +91,29 @@ def _safe_float(value: Any) -> Optional[float]:
 
 
 def extract_speaker_score(segment: Dict[str, Any], speaker: str) -> float:
-    """Extract a diarization confidence score for the given speaker.
+    """Extract a diarization/ASR confidence score for the given speaker.
 
-    The function attempts to read segment-level probabilities first, then falls
-    back to averaging word-level speaker probabilities. If no usable numeric
-    value is available, zero is returned to ensure deterministic sorting.
+    Heuristics (in priority order):
+
+    1. Segment-level speaker-specific scores:
+       - "speaker_prob"
+       - "speaker_probs"[speaker]
+       - generic segment-level "score" / "confidence"
+    2. Word-level scores for this speaker (or words without explicit speaker):
+       - "speaker_prob"
+       - "prob"
+       - "probability"
+       - "score"
+       - "confidence"
+    3. Segment-level ASR scores:
+       - "avg_logprob"  -> exp(logprob), clamped to [0, 1]
+       - "no_speech_prob" -> 1 - no_speech_prob
+    4. Fallback: segment duration (end - start), if available.
+
+    If nothing usable is found, return 0.0 to keep sorting deterministic.
     """
 
+    # 1) Explicit segment-level probabilities for this speaker
     prob = _safe_float(segment.get("speaker_prob"))
     if prob is not None:
         return prob
@@ -107,25 +124,80 @@ def extract_speaker_score(segment: Dict[str, Any], speaker: str) -> float:
         if prob is not None:
             return prob
 
+    # 1b) Generic segment-level confidence/score
+    for key in ("score", "confidence"):
+        prob = _safe_float(segment.get(key))
+        if prob is not None:
+            return prob
+
+    # 2) Word-level scores (more common in whisperx / faster-whisper outputs)
     words = segment.get("words")
-    if isinstance(words, list):
+    if isinstance(words, list) and words:
         scores: List[float] = []
         for word in words:
             if not isinstance(word, dict):
                 continue
+
             word_speaker = word.get("speaker")
             if word_speaker is not None and word_speaker != speaker:
+                # If a word is explicitly tagged with a different speaker, skip it
                 continue
-            word_prob = _safe_float(
-                word.get("speaker_prob")
-                if "speaker_prob" in word
-                else word.get("prob")
-            )
+
+            # Try a range of possible probability/score keys
+            word_prob = None
+            for key in (
+                "speaker_prob",
+                "prob",
+                "probability",
+                "score",
+                "confidence",
+            ):
+                val = word.get(key)
+                word_prob = _safe_float(val)
+                if word_prob is not None:
+                    break
+
             if word_prob is not None:
                 scores.append(word_prob)
+
         if scores:
             return sum(scores) / len(scores)
 
+    # 3) ASR-level scores (avg logprob, no_speech_prob)
+    avg_logprob = _safe_float(segment.get("avg_logprob"))
+    if avg_logprob is not None:
+        # avg_logprob is in log-space; convert to a rough [0, 1] proxy
+        # and clamp to keep things sane.
+        try:
+            prob_val = math.exp(avg_logprob)
+        except (OverflowError, ValueError):
+            prob_val = 0.0
+        if prob_val < 0.0:
+            prob_val = 0.0
+        if prob_val > 1.0:
+            prob_val = 1.0
+        return prob_val
+
+    no_speech_prob = _safe_float(segment.get("no_speech_prob"))
+    if no_speech_prob is not None:
+        # The lower the no_speech probability, the more confident we are it's real speech.
+        # Clamp to [0, 1].
+        value = 1.0 - no_speech_prob
+        if value < 0.0:
+            value = 0.0
+        if value > 1.0:
+            value = 1.0
+        return value
+
+    # 4) Fallback: duration-based score (longer segments tend to carry more info)
+    start = _safe_float(segment.get("start"))
+    end = _safe_float(segment.get("end"))
+    if start is not None and end is not None:
+        duration = end - start
+        if duration > 0:
+            return duration
+
+    # Final fallback: no usable info
     return 0.0
 
 
@@ -276,16 +348,32 @@ def main() -> None:
 
     mapping: Dict[str, str] = {}
     for speaker in speaker_order:
+        speaker_scored = scored_segments.get(speaker, [])
         preview = build_preview_lines(
             speaker,
             speaker_lines.get(speaker, []),
-            scored_segments.get(speaker, []),
+            speaker_scored,
         )
-        print(f"\nExamples for {speaker} (up to {PREVIEW_LIMIT} lines):")
+
+        # If we have any non-zero scores, treat this as a "top by score" preview
+        has_non_zero_scores = any(
+            isinstance(seg, dict) and (seg.get("score") or 0.0) != 0.0
+            for seg in speaker_scored
+        )
+        if has_non_zero_scores:
+            header = (
+                f"\nExamples for {speaker} "
+                f"(top {min(len(preview), PREVIEW_LIMIT)} by score):"
+            )
+        else:
+            header = f"\nExamples for {speaker} (up to {PREVIEW_LIMIT} lines):"
+
+        print(header)
         if not preview:
             print("No examples found for this speaker.")
         for example in preview:
             print(example)
+
         mapping[speaker] = prompt_for_name(speaker)
 
     print("\nAll speakers processed. Creating named files...")

@@ -86,6 +86,45 @@ def test_collect_scored_segments_prioritizes_confident_samples():
     assert "High confidence" in previews[0]
 
 
+def test_collect_scored_segments_uses_word_level_scores_when_segment_scores_missing():
+    data = {
+        "segments": [
+            {
+                "speaker": "SPEAKER_01",
+                "start": 1.0,
+                "end": 2.0,
+                "text": "Low score sample",
+                "words": [
+                    {"word": "hello", "start": 1.0, "end": 1.5, "score": 0.2},
+                    {"word": "world", "start": 1.5, "end": 2.0, "score": 0.3},
+                ],
+            },
+            {
+                "speaker": "SPEAKER_01",
+                "start": 3.0,
+                "end": 4.0,
+                "text": "High score sample",
+                "words": [
+                    {"word": "good", "start": 3.0, "end": 3.5, "score": 0.8},
+                    {"word": "day", "start": 3.5, "end": 4.0, "score": 0.9},
+                ],
+            },
+        ]
+    }
+
+    scored = sn.collect_scored_segments_by_speaker(data)
+    assert list(scored.keys()) == ["SPEAKER_01"]
+    scores = [seg["score"] for seg in scored["SPEAKER_01"]]
+
+    # Second segment should have a higher average word-level score
+    assert scores[1] > scores[0]
+
+    # build_preview_lines should pick the high-score segment first
+    previews = sn.build_preview_lines("SPEAKER_01", [], scored["SPEAKER_01"], limit=1)
+    assert len(previews) == 1
+    assert "High score sample" in previews[0]
+
+
 def test_build_preview_lines_falls_back_to_transcript_lines():
     previews = sn.build_preview_lines(
         "SPEAKER_03", ["line1", "line2", "line3"], [], limit=2
