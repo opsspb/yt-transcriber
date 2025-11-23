@@ -194,19 +194,19 @@ def build_preview_lines(
 
 def prompt_for_name(speaker: str) -> str:
     while True:
-        raw_name = input(f"\nВведите реальное имя для {speaker}: ").strip()
+        raw_name = input(f"\nEnter the real name for {speaker}: ").strip()
         if not raw_name:
-            print("Имя не может быть пустым. Попробуйте снова.")
+            print("Name cannot be empty. Please try again.")
             continue
         normalized = transliterate_to_english(raw_name)
-        print(f"Имя будет сохранено как: {normalized}")
+        print(f"Name will be saved as: {normalized}")
         while True:
-            confirmation = input("Введите 'y' для подтверждения или 'e' для правки: ").strip().lower()
+            confirmation = input("Enter 'y' to confirm or 'e' to edit: ").strip().lower()
             if confirmation == "y":
                 return normalized
             if confirmation == "e":
                 break
-            print("Пожалуйста, введите 'y' или 'e'.")
+            print("Please enter either 'y' or 'e'.")
 
 
 def replace_speakers_in_text(text: str, mapping: Dict[str, str]) -> str:
@@ -235,23 +235,23 @@ def build_named_path(path: str) -> str:
 def main() -> None:
     parser = argparse.ArgumentParser(
         description=(
-            "Переименование участников SPEAKER_XX в файлах транскрипции и JSON выводе."
+            "Rename SPEAKER_XX placeholders in transcript and JSON diarization outputs."
         )
     )
     parser.add_argument(
         "transcript",
-        help="Путь к diarized .txt файлу, содержащему SPEAKER_XX записи",
+        help="Path to the diarized .txt file containing SPEAKER_XX entries",
     )
     parser.add_argument(
         "--json",
         dest="json_path",
-        help="Необязательный путь к связанному JSON файлу транскрипции",
+        help="Optional path to the associated transcription JSON file",
     )
     args = parser.parse_args()
 
     transcript_path = os.path.abspath(args.transcript)
     if not os.path.isfile(transcript_path):
-        raise FileNotFoundError(f"Не удалось найти текстовый файл: {transcript_path}")
+        raise FileNotFoundError(f"Unable to find text file: {transcript_path}")
 
     json_path = args.json_path
     if not json_path:
@@ -271,7 +271,7 @@ def main() -> None:
 
     speaker_lines, speaker_order = collect_speaker_lines(lines)
     if not speaker_order:
-        print("SPEAKER_XX метки не найдены в указанном файле.")
+        print("No SPEAKER_XX tags were found in the provided file.")
         return
 
     mapping: Dict[str, str] = {}
@@ -281,20 +281,20 @@ def main() -> None:
             speaker_lines.get(speaker, []),
             scored_segments.get(speaker, []),
         )
-        print(f"\nПримеры для {speaker} (до {PREVIEW_LIMIT} строк):")
+        print(f"\nExamples for {speaker} (up to {PREVIEW_LIMIT} lines):")
         if not preview:
-            print("Примеры не найдены для этого участника.")
+            print("No examples found for this speaker.")
         for example in preview:
             print(example)
         mapping[speaker] = prompt_for_name(speaker)
 
-    print("\nВсе участники успешно обработаны. Формируем именованные файлы...")
+    print("\nAll speakers processed. Creating named files...")
 
     named_text_path = build_named_path(transcript_path)
     named_text_content = replace_speakers_in_text(text_content, mapping)
     with open(named_text_path, "w", encoding="utf-8") as f:
         f.write(named_text_content)
-    print(f"Создан файл: {named_text_path}")
+    print(f"Created file: {named_text_path}")
 
     if json_path and os.path.isfile(json_path):
         with open(json_path, "r", encoding="utf-8") as f:
@@ -303,11 +303,11 @@ def main() -> None:
         named_json_path = build_named_path(json_path)
         with open(named_json_path, "w", encoding="utf-8") as f:
             json.dump(updated, f, ensure_ascii=False, indent=2)
-        print(f"Создан файл: {named_json_path}")
+        print(f"Created file: {named_json_path}")
     else:
-        print("JSON файл не найден, пропускаем копию JSON.")
+        print("JSON file not found; skipping JSON copy.")
 
-    print("Готово.")
+    print("Done.")
 
 
 if __name__ == "__main__":

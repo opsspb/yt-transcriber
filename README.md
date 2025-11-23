@@ -18,25 +18,25 @@ python -m yt_diarizer.speaker_namer diarized_transcript_www.youtube.com_dQw4w9Wg
 Example interaction (user input in **bold**):
 
 ```
-Примеры для SPEAKER_00 (до 10 строк):
+Examples for SPEAKER_00 (up to 10 lines):
 [00:00:01.000 --> 00:00:03.500] SPEAKER_00: Hello world
 [00:00:03.500 --> 00:00:06.000] SPEAKER_00: Welcome back
 
-Введите реальное имя для SPEAKER_00: **Иван Иванов**
-Имя будет сохранено как: IVAN_IVANOV
-Введите 'y' для подтверждения или 'e' для правки: **y**
+Enter the real name for SPEAKER_00: **Ivan Ivanov**
+Name will be saved as: IVAN_IVANOV
+Enter 'y' to confirm or 'e' to edit: **y**
 
-Примеры для SPEAKER_01 (до 10 строк):
+Examples for SPEAKER_01 (up to 10 lines):
 [00:00:06.000 --> 00:00:08.250] SPEAKER_01: Great to see you
 
-Введите реальное имя для SPEAKER_01: **Host**
-Имя будет сохранено как: HOST
-Введите 'y' для подтверждения или 'e' для правки: **y**
+Enter the real name for SPEAKER_01: **Host**
+Name will be saved as: HOST
+Enter 'y' to confirm or 'e' to edit: **y**
 
-Все участники успешно обработаны. Формируем именованные файлы...
-Создан файл: /.../NAMED_diarized_transcript_www.youtube.com_dQw4w9WgXcQ.txt
-Создан файл: /.../NAMED_diarized_transcript_www.youtube.com_dQw4w9WgXcQ.json
-Готово.
+All speakers processed. Creating named files...
+Created file: /.../NAMED_diarized_transcript_www.youtube.com_dQw4w9WgXcQ.txt
+Created file: /.../NAMED_diarized_transcript_www.youtube.com_dQw4w9WgXcQ.json
+Done.
 ```
 
 Resulting transcript excerpt:
