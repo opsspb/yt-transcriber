@@ -1,8 +1,8 @@
 """High-level orchestration for the diarization pipeline."""
 
-import datetime
 import os
 import platform
+import re
 import shutil
 import stat
 import subprocess
@@ -11,6 +11,7 @@ import tarfile
 import zipfile
 from pathlib import Path
 from typing import Callable, Dict, List, Optional, Tuple, Union
+from urllib.parse import parse_qs, urlparse
 
 from .constants import ENV_STAGE_VAR, ENV_URL_VAR, ENV_WORKDIR_VAR, TOKEN_FILENAME
 from .deps import ensure_dependencies
@@ -96,10 +97,50 @@ def _resolve_youtube_url() -> str:
     return prompt_for_youtube_url()
 
 
+def _build_output_base_name_from_url(url: str) -> str:
+    """Derive a filesystem-friendly base name from the provided YouTube URL."""
+
+    parsed = urlparse(url.strip())
+    if not parsed.scheme:
+        parsed = urlparse(f"https://{url.strip()}")
+
+    parts: List[str] = []
+
+    if parsed.netloc:
+        parts.append(parsed.netloc)
+
+    query = parse_qs(parsed.query)
+    video_id = None
+    if query.get("v") and query["v"][0]:
+        video_id = query["v"][0]
+    elif parsed.path:
+        path_parts = [segment for segment in parsed.path.split("/") if segment]
+        if path_parts:
+            video_id = path_parts[-1]
+
+    if video_id:
+        parts.append(video_id)
+
+    if parsed.fragment:
+        parts.append(parsed.fragment)
+
+    if not parts:
+        parts.append("video")
+
+    raw_name = "_".join(parts)
+    safe_name = re.sub(r"[^A-Za-z0-9._-]", "_", raw_name)
+    safe_name = re.sub(r"_+", "_", safe_name).strip("._-")
+    if not safe_name:
+        safe_name = "video"
+
+    return f"diarized_transcript_{safe_name}"
+
+
 def save_final_outputs(
     transcript_lines: List[str],
     json_path: str,
     script_dir: str,
+    url: str,
 ) -> Dict[str, str]:
     """
     Save the diarized transcript (.txt) and raw WhisperX JSON into script_dir.
@@ -107,8 +148,7 @@ def save_final_outputs(
     Returns:
       {"txt": <txt_path>, "json": <json_path>}
     """
-    timestamp_tag = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
-    base_name = f"diarized_transcript_{timestamp_tag}"
+    base_name = _build_output_base_name_from_url(url)
 
     txt_path = os.path.join(script_dir, base_name + ".txt")
     json_target = os.path.join(script_dir, base_name + ".json")
@@ -707,7 +747,7 @@ def run_pipeline_inside_venv(script_dir: str, work_dir: str) -> None:
     )
 
     transcript_lines = build_diarized_transcript_from_json(json_result_path)
-    outputs = save_final_outputs(transcript_lines, json_result_path, script_dir)
+    outputs = save_final_outputs(transcript_lines, json_result_path, script_dir, url)
 
     log_line("")
     log_line("=== Done ===")
