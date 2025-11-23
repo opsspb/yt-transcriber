@@ -66,6 +66,15 @@ class InstallPythonDependenciesTests(unittest.TestCase):
         self.assertIn("pkg-config not found", str(ctx.exception))
         mocked_run.assert_not_called()
 
+    def test_pkg_config_required_on_macos_when_missing(self) -> None:
+        with mock.patch("sys.platform", "darwin"), mock.patch(
+            "shutil.which", return_value=None
+        ), mock.patch.dict(os.environ, {}, clear=False):
+            with self.assertRaises(DependencyInstallationError) as ctx:
+                pipeline.ensure_pkg_config_available()
+
+        self.assertIn("pkg-config not found in PATH", str(ctx.exception))
+
     def test_setup_and_run_in_venv_checks_pkg_config_first(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             entrypoint = os.path.join(tmpdir, "entry.py")
