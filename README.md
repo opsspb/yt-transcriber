@@ -5,6 +5,7 @@ A one-command CLI that downloads a YouTube video, transcribes it with WhisperX, 
 ## What's new
 
 - **Speaker renamer helper**: `python -m yt_diarizer.speaker_namer diarized_transcript_....txt` now walks you through renaming `SPEAKER_XX` entries to real names. The tool previews sample lines for each speaker, accepts names in any alphabet, and transliterates them to ASCII-friendly uppercase identifiers before writing new `NAMED_...` `.txt`/`.json` outputs side-by-side with the originals.
+- **Apple Silicon Whisper-only mode**: pass `--mps-convert` (or set `YT_DIARIZER_MPS_CONVERT=1`) to use the MPS backend on Macs. This path skips diarization and runs the standard Whisper CLI for faster transcript-only output when you just need timestamps and text.
 
 ### Speaker renamer helper examples
 
@@ -65,6 +66,12 @@ Resulting transcript excerpt:
    python3 yt_diarizer.py "https://www.youtube.com/watch?v=..."
    # or
    python -m yt_diarizer "https://www.youtube.com/watch?v=..."
+   ```
+   On Apple Silicon, add `--mps-convert` to switch to the Whisper-only path (no diarization) that uses the MPS backend:
+   ```bash
+   python3 yt_diarizer.py --mps-convert "https://www.youtube.com/watch?v=..."
+   # or opt in via environment variable
+   YT_DIARIZER_MPS_CONVERT=1 python -m yt_diarizer "https://www.youtube.com/watch?v=..."
    ```
 5. When prompted, paste the YouTube URL and press **Enter**. The script will:
    - create a temporary workspace and virtual environment under `.yt_diarizer_work_*`,
