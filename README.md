@@ -32,11 +32,14 @@ The temporary workspace is deleted automatically after the run. If the process i
 
 ## Outputs
 
-- A diarized transcript in `diarized_transcript_YYYYMMDD_HHMMSS.txt` with lines like:
+- A diarized transcript named after the YouTube link (sanitized for filesystem
+  safety), e.g. `diarized_transcript_www.youtube.com_dQw4w9WgXcQ.txt`, with
+  lines like:
   ```
   [00:00:01.000 --> 00:00:03.500] SPEAKER_00: Hello world
   ```
-- The raw WhisperX JSON in a matching `diarized_transcript_YYYYMMDD_HHMMSS.json` file.
+- The raw WhisperX JSON saved alongside the transcript using the same base
+  name, e.g. `diarized_transcript_www.youtube.com_dQw4w9WgXcQ.json`.
 
 ## Tips and troubleshooting
 
