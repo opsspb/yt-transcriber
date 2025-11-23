@@ -37,6 +37,29 @@ def main(script_dir: Optional[str] = None, entrypoint_path: Optional[str] = None
     )
     parser.add_argument("url", nargs="?", help="YouTube URL to transcribe")
     parser.add_argument(
+        "-l",
+        "--language",
+        dest="language",
+        help="Optional language hint for Whisper/WhisperX (e.g. 'ru', 'en').",
+    )
+    parser.add_argument(
+        "--initial-prompt",
+        dest="initial_prompt",
+        help="Optional initial prompt to bias transcription (Whisper/WhisperX).",
+    )
+    parser.add_argument(
+        "--min-speakers",
+        dest="min_speakers",
+        type=int,
+        help="Minimum number of speakers for diarization (passed to WhisperX).",
+    )
+    parser.add_argument(
+        "--max-speakers",
+        dest="max_speakers",
+        type=int,
+        help="Maximum number of speakers for diarization (passed to WhisperX).",
+    )
+    parser.add_argument(
         "-c",
         "--cookies",
         dest="cookies",
@@ -61,6 +84,18 @@ def main(script_dir: Optional[str] = None, entrypoint_path: Optional[str] = None
             os.environ.setdefault("YT_DIARIZER_COOKIES", args.cookies)
         if args.mps_convert:
             os.environ.setdefault(ENV_MPS_CONVERT_VAR, "1")
+
+        if args.language:
+            os.environ.setdefault("YT_DIARIZER_LANGUAGE", args.language)
+
+        if args.initial_prompt:
+            os.environ.setdefault("YT_DIARIZER_INITIAL_PROMPT", args.initial_prompt)
+
+        if args.min_speakers is not None:
+            os.environ.setdefault("YT_DIARIZER_MIN_SPEAKERS", str(args.min_speakers))
+
+        if args.max_speakers is not None:
+            os.environ.setdefault("YT_DIARIZER_MAX_SPEAKERS", str(args.max_speakers))
 
         ensure_pkg_config_available()
 

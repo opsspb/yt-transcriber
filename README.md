@@ -4,6 +4,7 @@ A one-command CLI that downloads a YouTube video, transcribes it with WhisperX, 
 
 ## What's new
 
+- **Language/prompt and diarization speaker hints**: pass `--language`, `--initial-prompt`, `--min-speakers`, or `--max-speakers` to guide WhisperX (and the MPS Whisper path) for better quality on Russian and other languages. Short diarization “ping-pong” segments are smoothed to reduce rapid speaker flipping.
 - **Speaker renamer helper**: `python -m yt_diarizer.speaker_namer diarized_transcript_....txt` now walks you through renaming `SPEAKER_XX` entries to real names. The tool previews sample lines for each speaker, accepts names in any alphabet, and transliterates them to ASCII-friendly uppercase identifiers before writing new `NAMED_...` `.txt`/`.json` outputs side-by-side with the originals.
 - **Apple Silicon Whisper-only mode**: pass `--mps-convert` (or set `YT_DIARIZER_MPS_CONVERT=1`) to use the MPS backend on Macs. This path skips diarization and runs the standard Whisper CLI for faster transcript-only output when you just need timestamps and text.
 
@@ -77,10 +78,20 @@ Resulting transcript excerpt:
    - create a temporary workspace and virtual environment under `.yt_diarizer_work_*`,
    - install pinned versions of WhisperX, PyTorch CPU wheels, pyannote, and `yt-dlp` inside the venv,
    - download best-quality audio via `yt-dlp` (falling back to your cookies or browser cookies if needed),
-   - transcribe with WhisperX using the `large-v3` model and pyannote diarization on CPU,
-   - print progress and debug messages to the terminal.
+ - transcribe with WhisperX using the `large-v3` model and pyannote diarization on CPU,
+  - print progress and debug messages to the terminal.
 
 The temporary workspace is deleted automatically after the run. If the process is interrupted, you can safely delete any leftover `.yt_diarizer_work_*` directories.
+
+### Language and diarization hints
+
+You can bias transcription and diarization when calling the CLI or module entrypoint:
+
+- `--language`: language hint passed to Whisper/WhisperX (e.g., `ru`, `en`).
+- `--initial-prompt`: text prepended for Whisper decoding to steer terminology or spelling.
+- `--min-speakers` / `--max-speakers`: bounds for diarization speaker clustering in WhisperX.
+
+These flags are also available as environment variables (`YT_DIARIZER_LANGUAGE`, `YT_DIARIZER_INITIAL_PROMPT`, `YT_DIARIZER_MIN_SPEAKERS`, `YT_DIARIZER_MAX_SPEAKERS`) and are honored by both the default WhisperX path and the Apple Silicon `--mps-convert` shortcut.
 
 ## Outputs
 
@@ -96,7 +107,7 @@ The temporary workspace is deleted automatically after the run. If the process i
 ## Tips and troubleshooting
 
 - First run may take time while WhisperX dependencies download. The tool pins
-  faster-whisper to 0.10.1 to avoid an upstream API change in 1.x that breaks
-  WhisperX 3.1.1.
+  WhisperX to 3.2.0 and applies its upstream requirements constraint file to
+  keep the dependency set stable.
 - If `yt-dlp` fails on restricted videos, provide cookies as noted above or grant your terminal “Full Disk Access” on macOS so `--cookies-from-browser` can read Safari/Chrome cookies.
 - Ensure ffmpeg is in `PATH` on non-macOS platforms; otherwise the run will fail early. You can avoid repeated model downloads between runs by keeping the default cache locations, but by default the script now stores Hugging Face, Transformers, pyannote, and Torch caches inside the temporary workspace so they are cleaned up automatically.

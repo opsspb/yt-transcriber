@@ -16,7 +16,7 @@ class InstallPythonDependenciesTests(unittest.TestCase):
     def test_install_python_dependencies_uses_pinned_commands(self) -> None:
         calls = []
 
-        def _fake_run(cmd, description):
+        def _fake_run(cmd, description, env=None):
             calls.append((cmd, description))
             return 0, ["ok"]
 
@@ -31,14 +31,14 @@ class InstallPythonDependenciesTests(unittest.TestCase):
         self.assertIn("below 2.x", numpy_desc)
 
         torch_cmd, torch_desc = calls[2]
-        self.assertIn("install PyTorch CPU wheels", torch_desc)
+        self.assertIn("install PyTorch wheels", torch_desc)
         self.assertIn("torch==2.3.1", torch_cmd)
         self.assertIn("torchaudio==2.3.1", torch_cmd)
         self.assertIn("--index-url", torch_cmd)
 
         whisper_cmd, whisper_desc = calls[3]
         self.assertIn("install WhisperX", whisper_desc)
-        self.assertIn("whisperx==3.1.1", whisper_cmd)
+        self.assertIn("whisperx==3.2.0", whisper_cmd)
         self.assertIn("yt-dlp==2024.11.18", whisper_cmd)
         self.assertIn("--constraint", whisper_cmd)
         self.assertNotIn("pyannote.audio", " ".join(whisper_cmd))

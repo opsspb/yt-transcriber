@@ -226,7 +226,7 @@ def install_python_dependencies(venv_python: str, mps_convert: bool = False) -> 
         "numpy": "1.26.4",  # WhisperX deps expect numpy<2
         "torch": "2.3.1",
         "torchaudio": "2.3.1",
-        "whisperx": "3.1.1",
+        "whisperx": "3.2.0",  # upgraded from 3.1.1
         "whisper": "20240930",
         "yt-dlp": "2024.11.18",
     }
@@ -307,7 +307,7 @@ def install_python_dependencies(venv_python: str, mps_convert: bool = False) -> 
                 f"whisperx=={pinned_versions['whisperx']}",
                 f"yt-dlp=={pinned_versions['yt-dlp']}",
                 "--constraint",
-                "https://raw.githubusercontent.com/m-bain/whisperX/v3.1.1/requirements.txt",
+                "https://raw.githubusercontent.com/m-bain/whisperX/v3.2.0/requirements.txt",
             ],
             "install WhisperX, yt-dlp and supporting dependencies",
         )

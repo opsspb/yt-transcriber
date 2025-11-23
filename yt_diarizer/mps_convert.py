@@ -44,9 +44,19 @@ def transcribe_audio_with_mps_whisper(audio_path: str, work_dir: str) -> Tuple[s
     device = "mps"
     debug("Running Whisper transcription with large-v3 model on MPS (no diarization)...")
 
+    language = os.environ.get("YT_DIARIZER_LANGUAGE") or None
+    initial_prompt = os.environ.get("YT_DIARIZER_INITIAL_PROMPT") or None
+
     def _run_whisper(target_device: str) -> dict:
         model = whisper.load_model("large-v3", device=target_device)
-        return model.transcribe(audio_path, verbose=True)
+
+        transcribe_kwargs = {"verbose": True}
+        if language:
+            transcribe_kwargs["language"] = language
+        if initial_prompt:
+            transcribe_kwargs["initial_prompt"] = initial_prompt
+
+        return model.transcribe(audio_path, **transcribe_kwargs)
 
     try:
         result = _run_whisper(device)
