@@ -204,9 +204,9 @@ def ensure_pkg_config_available() -> None:
 
 def install_python_dependencies(venv_python: str) -> None:
     """
-    Install required Python packages (whisperx stack + yt-dlp) into the venv.
-    We pin only yt-dlp and av; WhisperX and its own dependencies are allowed
-    to resolve their versions to avoid conflicts (in particular around NumPy).
+    Install required Python packages (WhisperX stack + yt-dlp) into the venv.
+    Key dependencies are pinned to versions that match the tested WhisperX
+    stack and avoid NumPy 2.x incompatibilities.
     """
     debug("Installing Python dependencies (WhisperX stack) inside venv ...")
 
@@ -214,8 +214,10 @@ def install_python_dependencies(venv_python: str) -> None:
     ensure_pkg_config_available()
 
     pinned_versions = {
-        # Keep these pinned for reproducibility; the rest is resolved by WhisperX.
-        "av": "12.3.0",
+        "numpy": "1.26.4",  # WhisperX deps expect numpy<2
+        "torch": "2.3.1",
+        "torchaudio": "2.3.1",
+        "whisperx": "3.1.1",
         "yt-dlp": "2024.11.18",
     }
 
@@ -223,7 +225,7 @@ def install_python_dependencies(venv_python: str) -> None:
         rc, log_lines = run_logged_subprocess(cmd, description)
         if rc != 0:
             last_snippet = "\n".join(log_lines[-20:])
-            raise RuntimeError(
+            raise DependencyError(
                 f"ERROR: {description} failed with exit code {rc}.\n"
                 f"Last output snippet:\n{last_snippet}"
             )
@@ -241,21 +243,46 @@ def install_python_dependencies(venv_python: str) -> None:
         "pip upgrade",
     )
 
-    # Install WhisperX from GitHub together with pinned yt-dlp and av.
-    # NumPy, ctranslate2, faster-whisper etc. are resolved automatically
-    # according to WhisperX's pyproject metadata, so we don't manually
-    # constrain them and avoid version conflicts.
+    # Pin numpy below 2.x until WhisperX updates its requirements.
     _run(
         [
             venv_python,
             "-m",
             "pip",
             "install",
-            "git+https://github.com/m-bain/whisperX.git",
-            f"yt-dlp=={pinned_versions['yt-dlp']}",
-            f"av=={pinned_versions['av']}",
+            f"numpy=={pinned_versions['numpy']}",
         ],
-        "install WhisperX (from GitHub), yt-dlp and av",
+        "install numpy below 2.x for WhisperX dependencies",
+    )
+
+    # Install PyTorch CPU wheels explicitly.
+    _run(
+        [
+            venv_python,
+            "-m",
+            "pip",
+            "install",
+            f"torch=={pinned_versions['torch']}",
+            f"torchaudio=={pinned_versions['torchaudio']}",
+            "--index-url",
+            "https://download.pytorch.org/whl/cpu",
+        ],
+        "install PyTorch CPU wheels",
+    )
+
+    # Install WhisperX and yt-dlp with an explicit constraints file.
+    _run(
+        [
+            venv_python,
+            "-m",
+            "pip",
+            "install",
+            f"whisperx=={pinned_versions['whisperx']}",
+            f"yt-dlp=={pinned_versions['yt-dlp']}",
+            "--constraint",
+            "https://raw.githubusercontent.com/m-bain/whisperX/v3.1.1/requirements.txt",
+        ],
+        "install WhisperX, yt-dlp and supporting dependencies",
     )
 
 
