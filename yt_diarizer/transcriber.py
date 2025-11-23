@@ -26,6 +26,60 @@ def format_timestamp(seconds: Optional[float]) -> str:
     return f"{hours:02d}:{minutes:02d}:{secs:02d}.{ms:03d}"
 
 
+def smooth_speaker_labels(
+    segments: List[Dict[str, Any]],
+    max_short: float = 0.7,
+) -> None:
+    """
+    In-place smoothing heuristic for diarization results.
+
+    If a very short segment has a different speaker than its immediate
+    neighbours, and both neighbours share the same speaker label, we
+    relabel the short segment to match them.
+
+    This helps remove single-word "speaker ping-pong" artefacts.
+    """
+    if len(segments) < 3:
+        return
+
+    # Ensure chronological order just in case
+    segments.sort(key=lambda s: float(s.get("start", 0.0)))
+
+    for i in range(1, len(segments) - 1):
+        cur = segments[i]
+        prev_seg = segments[i - 1]
+        next_seg = segments[i + 1]
+
+        try:
+            start = float(cur.get("start", 0.0))
+            end = float(cur.get("end", start))
+        except (TypeError, ValueError):
+            continue
+
+        duration = max(0.0, end - start)
+        if duration > max_short:
+            continue
+
+        cur_speaker = cur.get("speaker")
+        prev_speaker = prev_seg.get("speaker")
+        next_speaker = next_seg.get("speaker")
+
+        if not prev_speaker or not next_speaker:
+            continue
+
+        if (
+            prev_speaker == next_speaker
+            and cur_speaker is not None
+            and cur_speaker != prev_speaker
+        ):
+            debug(
+                f"Smoothing speaker label at index {i}: "
+                f"{cur_speaker!r} -> {prev_speaker!r} "
+                f"(duration={duration:.3f}s)."
+            )
+            cur["speaker"] = prev_speaker
+
+
 def build_diarized_transcript_lines_from_data(data: Dict[str, Any]) -> List[str]:
     """
     Convert WhisperX JSON-like transcription result into diarized transcript lines.
@@ -34,6 +88,11 @@ def build_diarized_transcript_lines_from_data(data: Dict[str, Any]) -> List[str]
       "[00:00:01.000 --> 00:00:03.500] SPEAKER_00: Hello world"
     """
     segments = data.get("segments") or []
+    if not isinstance(segments, list):
+        segments = []
+
+    smooth_speaker_labels(segments)
+
     lines: List[str] = []
     for seg in segments:
         start = seg.get("start")
@@ -62,6 +121,21 @@ def run_whisperx_cli(
       - beam_size: 5
       - diarization: pyannote
     """
+    language = os.environ.get("YT_DIARIZER_LANGUAGE") or None
+    initial_prompt = os.environ.get("YT_DIARIZER_INITIAL_PROMPT") or None
+    min_speakers = os.environ.get("YT_DIARIZER_MIN_SPEAKERS") or None
+    max_speakers = os.environ.get("YT_DIARIZER_MAX_SPEAKERS") or None
+
+    if language:
+        debug(f"WhisperX language hint: {language}")
+    if min_speakers or max_speakers:
+        debug(
+            f"WhisperX diarization speakers bounds: "
+            f"min={min_speakers or 'auto'}, max={max_speakers or 'auto'}"
+        )
+    if initial_prompt:
+        debug("WhisperX will use an initial prompt for decoding.")
+
     debug("Running WhisperX diarization with large-v3 model (high quality)...")
 
     threads = os.cpu_count() or 1
@@ -93,6 +167,18 @@ def run_whisperx_cli(
         "--print_progress",
         "True",
     ]
+
+    if language:
+        cmd.extend(["--language", language])
+
+    if min_speakers:
+        cmd.extend(["--min_speakers", str(min_speakers)])
+
+    if max_speakers:
+        cmd.extend(["--max_speakers", str(max_speakers)])
+
+    if initial_prompt:
+        cmd.extend(["--initial_prompt", initial_prompt])
 
     rc, lines = run_logged_subprocess(cmd, "whisperx diarization")
     if rc != 0:
