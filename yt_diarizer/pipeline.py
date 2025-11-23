@@ -186,17 +186,6 @@ def ensure_pkg_config_available() -> None:
         )
         return
 
-    if sys.platform == "darwin":
-        if shutil.which("pkg-config"):
-            return
-
-        debug(
-            "pkg-config not found on macOS; skipping preflight. If pip later fails with "
-            "'pkg-config is required for building pyav', adjust pinned dependencies to "
-            "use a PyAV wheel."
-        )
-        return
-
     if shutil.which("pkg-config"):
         return
 
