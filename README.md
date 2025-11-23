@@ -2,6 +2,51 @@
 
 A one-command CLI that downloads a YouTube video, transcribes it with WhisperX, and saves a diarized transcript with speaker labels. The script creates a temporary virtual environment for each run, installs dependencies inside it, and cleans up after itself while keeping the final transcript and logs.
 
+## What's new
+
+- **Speaker renamer helper**: `python -m yt_diarizer.speaker_namer diarized_transcript_....txt` now walks you through renaming `SPEAKER_XX` entries to real names. The tool previews sample lines for each speaker, accepts names in any alphabet, and transliterates them to ASCII-friendly uppercase identifiers before writing new `NAMED_...` `.txt`/`.json` outputs side-by-side with the originals.
+
+### Speaker renamer helper examples
+
+Run it against the diarized transcript (and optionally its JSON) after the main script finishes:
+
+```bash
+python -m yt_diarizer.speaker_namer diarized_transcript_www.youtube.com_dQw4w9WgXcQ.txt \
+  --json diarized_transcript_www.youtube.com_dQw4w9WgXcQ.json
+```
+
+Example interaction (user input in **bold**):
+
+```
+Примеры для SPEAKER_00 (до 10 строк):
+[00:00:01.000 --> 00:00:03.500] SPEAKER_00: Hello world
+[00:00:03.500 --> 00:00:06.000] SPEAKER_00: Welcome back
+
+Введите реальное имя для SPEAKER_00: **Иван Иванов**
+Имя будет сохранено как: IVAN_IVANOV
+Введите 'y' для подтверждения или 'e' для правки: **y**
+
+Примеры для SPEAKER_01 (до 10 строк):
+[00:00:06.000 --> 00:00:08.250] SPEAKER_01: Great to see you
+
+Введите реальное имя для SPEAKER_01: **Host**
+Имя будет сохранено как: HOST
+Введите 'y' для подтверждения или 'e' для правки: **y**
+
+Все участники успешно обработаны. Формируем именованные файлы...
+Создан файл: /.../NAMED_diarized_transcript_www.youtube.com_dQw4w9WgXcQ.txt
+Создан файл: /.../NAMED_diarized_transcript_www.youtube.com_dQw4w9WgXcQ.json
+Готово.
+```
+
+Resulting transcript excerpt:
+
+```
+[00:00:01.000 --> 00:00:03.500] IVAN_IVANOV: Hello world
+[00:00:03.500 --> 00:00:06.000] IVAN_IVANOV: Welcome back
+[00:00:06.000 --> 00:00:08.250] HOST: Great to see you
+```
+
 ## Requirements
 
 - Python 3.9.6 or newer available on the command line (confirmed to work on macOS 26.1 on an M2 Max using the system Python 3.9.6 interpreter).
