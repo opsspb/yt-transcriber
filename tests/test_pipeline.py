@@ -27,20 +27,21 @@ class InstallPythonDependenciesTests(unittest.TestCase):
 
         self.assertEqual(len(calls), 4)
         numpy_cmd, numpy_desc = calls[1]
-        self.assertIn("numpy==1.26.4", numpy_cmd)
-        self.assertIn("below 2.x", numpy_desc)
+        self.assertIn("numpy==2.0.2", numpy_cmd)
+        self.assertIn("install numpy", numpy_desc)
 
         torch_cmd, torch_desc = calls[2]
         self.assertIn("install PyTorch wheels", torch_desc)
-        self.assertIn("torch==2.3.1", torch_cmd)
-        self.assertIn("torchaudio==2.3.1", torch_cmd)
+        self.assertIn("torch==2.8.0", torch_cmd)
+        self.assertIn("torchaudio==2.8.0", torch_cmd)
         self.assertIn("--index-url", torch_cmd)
 
         whisper_cmd, whisper_desc = calls[3]
         self.assertIn("install WhisperX", whisper_desc)
-        self.assertIn("whisperx==3.2.0", whisper_cmd)
+        self.assertIn("whisperx==3.7.4", whisper_cmd)
         self.assertIn("yt-dlp==2024.11.18", whisper_cmd)
-        self.assertIn("--constraint", whisper_cmd)
+        # We no longer rely on an external constraints file for WhisperX.
+        self.assertNotIn("--constraint", whisper_cmd)
         self.assertNotIn("pyannote.audio", " ".join(whisper_cmd))
 
     def test_install_python_dependencies_failure_reports_snippet(self) -> None:
