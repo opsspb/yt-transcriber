@@ -219,10 +219,12 @@ def install_python_dependencies(venv_python: str, mps_convert: bool = False) -> 
     ensure_pkg_config_available()
 
     pinned_versions = {
-        "numpy": "1.26.4",  # WhisperX deps expect numpy<2
-        "torch": "2.3.1",
-        "torchaudio": "2.3.1",
-        "whisperx": "3.2.0",  # upgraded from 3.1.1
+        # WhisperX 3.7.4 currently expects torch/torchaudio 2.8 and numpy ~=2.0.
+        # Keep these in sync with the WhisperX version above.
+        "numpy": "2.0.2",
+        "torch": "2.8.0",
+        "torchaudio": "2.8.0",
+        "whisperx": "3.7.4",
         "whisper": "20240930",
         "yt-dlp": "2024.11.18",
     }
@@ -256,7 +258,7 @@ def install_python_dependencies(venv_python: str, mps_convert: bool = False) -> 
         "pip upgrade",
     )
 
-    # Pin numpy below 2.x until WhisperX updates its requirements.
+    # Install numpy at a version compatible with the pinned WhisperX stack.
     _run(
         [
             venv_python,
@@ -265,7 +267,7 @@ def install_python_dependencies(venv_python: str, mps_convert: bool = False) -> 
             "install",
             f"numpy=={pinned_versions['numpy']}",
         ],
-        "install numpy below 2.x for WhisperX dependencies",
+        "install numpy for WhisperX dependencies",
     )
 
     torch_cmd = [
@@ -302,8 +304,6 @@ def install_python_dependencies(venv_python: str, mps_convert: bool = False) -> 
                 "install",
                 f"whisperx=={pinned_versions['whisperx']}",
                 f"yt-dlp=={pinned_versions['yt-dlp']}",
-                "--constraint",
-                "https://raw.githubusercontent.com/m-bain/whisperX/v3.2.0/requirements.txt",
             ],
             "install WhisperX, yt-dlp and supporting dependencies",
         )
